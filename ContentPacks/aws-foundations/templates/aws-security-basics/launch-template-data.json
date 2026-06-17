@@ -1,0 +1,27 @@
+{
+  "MetadataOptions": {
+    "HttpEndpoint": "enabled",
+    "HttpTokens": "required"
+  },
+  "NetworkInterfaces": [
+    {
+      "DeviceIndex": 0,
+      "AssociatePublicIpAddress": false,
+      "DeleteOnTermination": true,
+      "Groups": [
+        "REPLACE_WITH_SECURITY_GROUP_ID"
+      ]
+    }
+  ],
+  "BlockDeviceMappings": [
+    {
+      "DeviceName": "/dev/xvda",
+      "Ebs": {
+        "Encrypted": true,
+        "DeleteOnTermination": true,
+        "VolumeSize": 8,
+        "VolumeType": "gp3"
+      }
+    }
+  ]
+}

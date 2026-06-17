@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import re
+import subprocess
+from pathlib import Path
+from types import SimpleNamespace
+
+
+LAB_ID = "aws-security-basics"
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--session", required=True)
+    parser.add_argument("--ssh-key", required=True)
+    parser.add_argument("--ssh-port", required=True)
+    parser.add_argument("--ssh-user", required=True)
+    parser.add_argument("--ssh-hostname", required=True)
+    parser.add_argument("--known-hosts", required=True)
+    parser.add_argument("--mode", required=True)
+    return parser.parse_args()
+
+
+def emit(checks):
+    passed = sum(1 for check in checks if check["status"] == "pass")
+    print(json.dumps({"labId": LAB_ID, "checks": checks, "score": {"passed": passed, "total": len(checks)}}))
+
+
+def check(check_id, label, ok, detail):
+    return {"id": check_id, "status": "pass" if ok else "fail", "label": label, "detail": "ok" if ok else detail}
+
+
+def load_metadata(session_path):
+    metadata_path = Path(session_path) / "aws-grader" / "metadata.json"
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"Missing AWS grader metadata at {metadata_path}")
+    return json.loads(metadata_path.read_text())
+
+
+def run_command(command, env=None, timeout=25):
+    try:
+        return subprocess.run(command, text=True, capture_output=True, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        return SimpleNamespace(returncode=124, stdout=exc.stdout or "", stderr=exc.stderr or "command timed out")
+
+
+def assume_grader_role(metadata):
+    cp = run_command([
+        "aws", "sts", "assume-role",
+        "--profile", metadata["sourceProfile"],
+        "--role-arn", metadata["graderRoleArn"],
+        "--role-session-name", f"opscoach-grader-{metadata['outputs'].get('SessionId', 'session')}",
+        "--duration-seconds", "3600",
+        "--output", "json",
+    ])
+    if cp.returncode != 0:
+        raise RuntimeError(cp.stderr.strip() or cp.stdout.strip() or "sts assume-role failed")
+    data = json.loads(cp.stdout)
+    credentials = data["Credentials"]
+    env = os.environ.copy()
+    env.update({
+        "AWS_ACCESS_KEY_ID": credentials["AccessKeyId"],
+        "AWS_SECRET_ACCESS_KEY": credentials["SecretAccessKey"],
+        "AWS_SESSION_TOKEN": credentials["SessionToken"],
+        "AWS_DEFAULT_REGION": metadata["region"],
+        "AWS_REGION": metadata["region"],
+        "AWS_PAGER": "",
+    })
+    return env
+
+
+def aws_json(env, args):
+    cp = run_command(["aws", *args, "--output", "json"], env=env)
+    if cp.returncode != 0:
+        return None, cp.stderr.strip() or cp.stdout.strip()
+    try:
+        return json.loads(cp.stdout or "{}"), None
+    except json.JSONDecodeError as exc:
+        return None, str(exc)
+
+
+def ssh_text(args, command):
+    ssh_args = [
+        "ssh",
+        "-i", args.ssh_key,
+        "-p", str(args.ssh_port),
+        "-o", "IdentitiesOnly=yes",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", f"UserKnownHostsFile={args.known_hosts}",
+        "-o", "ConnectTimeout=5",
+        f"{args.ssh_user}@{args.ssh_hostname}",
+        command,
+    ]
+    return run_command(ssh_args, timeout=12)
+
+
+def public_ssh_ingress(permission):
+    protocol = permission.get("IpProtocol")
+    from_port = permission.get("FromPort")
+    to_port = permission.get("ToPort")
+    covers_ssh = protocol == "-1" or (protocol == "tcp" and from_port is not None and to_port is not None and from_port <= 22 <= to_port)
+    if not covers_ssh:
+        return False
+    cidrs = [entry.get("CidrIp") for entry in permission.get("IpRanges", [])]
+    cidrs += [entry.get("CidrIpv6") for entry in permission.get("Ipv6Ranges", [])]
+    return "0.0.0.0/0" in cidrs or "::/0" in cidrs
+
+
+def internal_https_ingress(permission):
+    if permission.get("IpProtocol") != "tcp":
+        return False
+    from_port = permission.get("FromPort")
+    to_port = permission.get("ToPort")
+    if from_port is None or to_port is None or not (from_port <= 443 <= to_port):
+        return False
+    return any(entry.get("CidrIp") == "10.44.0.0/16" for entry in permission.get("IpRanges", []))
+
+
+def findings_handoff_ok(findings, outputs):
+    bucket = outputs["DataBucketName"]
+    security_group_id = outputs["SecurityGroupId"]
+    launch_template_id = outputs["LaunchTemplateId"]
+    trail_name = outputs["TrailName"]
+    topic_arn = outputs["AlarmTopicArn"]
+    session_id = outputs["SessionId"]
+    topic_id = topic_arn.rsplit(":", 1)[-1] if topic_arn else ""
+
+    resources_present = all(
+        value and value in findings
+        for value in [bucket, security_group_id, launch_template_id, trail_name]
+    )
+    topic_present = topic_arn in findings or (topic_id and topic_id in findings)
+    alarm_present = "RootAccountUsage" in findings or f"OpsCoach-{session_id}" in findings
+
+    checklist_match = re.search(r"(?is)##\s*Target State Checklist.*?(?:##\s*Handoff|\Z)", findings)
+    checklist = checklist_match.group(0) if checklist_match else ""
+    checklist_rows = [
+        line.strip()
+        for line in checklist.splitlines()
+        if line.strip().startswith("- ")
+    ]
+    state_pattern = re.compile(r"(?i)\b(enabled|disabled|removed|true|false|required)\b")
+    rows_complete = bool(checklist_rows) and all(
+        ":" in row and state_pattern.search(row.split(":", 1)[1])
+        for row in checklist_rows
+    )
+
+    return resources_present and topic_present and alarm_present and rows_complete
+
+
+def launch_template_data(env, launch_template_id):
+    data, error = aws_json(env, [
+        "ec2", "describe-launch-template-versions",
+        "--launch-template-id", launch_template_id,
+        "--versions", "$Default",
+    ])
+    if error:
+        return None, error
+    versions = data.get("LaunchTemplateVersions", [])
+    if not versions:
+        return None, "No default launch template version returned."
+    return versions[0].get("LaunchTemplateData", {}), None
+
+
+def main():
+    args = parse_args()
+    try:
+        metadata = load_metadata(args.session)
+        env = assume_grader_role(metadata)
+    except Exception as exc:
+        emit([
+            check("aws-session-ready", "AWS grading session is available", False, str(exc)),
+            check("research-bucket", "Research bucket versioning and public access block are enabled", False, "AWS grading could not start."),
+            check("security-group", "Security group removes public SSH and keeps internal HTTPS", False, "AWS grading could not start."),
+            check("launch-template", "Default launch template uses private IP, IMDSv2, and encrypted root storage", False, "AWS grading could not start."),
+            check("trail-validation", "CloudTrail log file validation is enabled", False, "AWS grading could not start."),
+            check("root-alarm", "Root account usage alarm sends to the assigned topic", False, "AWS grading could not start."),
+            check("findings", "Findings handoff records assigned resources and final state", False, "AWS grading could not start."),
+        ])
+        return
+
+    outputs = metadata["outputs"]
+    bucket = outputs["DataBucketName"]
+    security_group_id = outputs["SecurityGroupId"]
+    launch_template_id = outputs["LaunchTemplateId"]
+    trail_name = outputs["TrailName"]
+    topic_arn = outputs["AlarmTopicArn"]
+    session_id = outputs["SessionId"]
+    checks = [check("aws-session-ready", "AWS grading session is available", True, "ok")]
+
+    versioning, versioning_error = aws_json(env, ["s3api", "get-bucket-versioning", "--bucket", bucket])
+    public_block, public_block_error = aws_json(env, ["s3api", "get-public-access-block", "--bucket", bucket])
+    public_block_config = (public_block or {}).get("PublicAccessBlockConfiguration", {})
+    checks.append(check(
+        "research-bucket",
+        "Research bucket versioning and public access block are enabled",
+        versioning_error is None
+        and public_block_error is None
+        and versioning.get("Status") == "Enabled"
+        and all(public_block_config.get(key) is True for key in ["BlockPublicAcls", "IgnorePublicAcls", "BlockPublicPolicy", "RestrictPublicBuckets"]),
+        "Enable versioning and all bucket-level public access block controls on the assigned research bucket.",
+    ))
+
+    security_group, sg_error = aws_json(env, ["ec2", "describe-security-groups", "--group-ids", security_group_id])
+    permissions = ((security_group or {}).get("SecurityGroups") or [{}])[0].get("IpPermissions", [])
+    checks.append(check(
+        "security-group",
+        "Security group removes public SSH and keeps internal HTTPS",
+        sg_error is None
+        and not any(public_ssh_ingress(permission) for permission in permissions)
+        and any(internal_https_ingress(permission) for permission in permissions),
+        "Remove public SSH ingress while preserving the expected internal HTTPS ingress.",
+    ))
+
+    launch_data, lt_error = launch_template_data(env, launch_template_id)
+    network_interfaces = (launch_data or {}).get("NetworkInterfaces", [])
+    block_devices = (launch_data or {}).get("BlockDeviceMappings", [])
+    metadata_options = (launch_data or {}).get("MetadataOptions", {})
+    public_ip_disabled = network_interfaces and all(interface.get("AssociatePublicIpAddress") is not True for interface in network_interfaces)
+    root_encrypted = any(mapping.get("DeviceName") == "/dev/xvda" and mapping.get("Ebs", {}).get("Encrypted") is True for mapping in block_devices)
+    checks.append(check(
+        "launch-template",
+        "Default launch template uses private IP, IMDSv2, and encrypted root storage",
+        lt_error is None
+        and public_ip_disabled
+        and metadata_options.get("HttpTokens") == "required"
+        and root_encrypted,
+        "Make the corrected launch template version the default with private networking, required IMDS tokens, and encrypted root storage.",
+    ))
+
+    trail_data, trail_error = aws_json(env, ["cloudtrail", "describe-trails", "--trail-name-list", trail_name])
+    trails = (trail_data or {}).get("trailList", [])
+    checks.append(check(
+        "trail-validation",
+        "CloudTrail log file validation is enabled",
+        trail_error is None and any(trail.get("Name") == trail_name and trail.get("LogFileValidationEnabled") is True for trail in trails),
+        "Enable log file validation on the assigned management trail.",
+    ))
+
+    alarm_name = f"OpsCoach-{session_id}-RootAccountUsage"
+    alarm_data, alarm_error = aws_json(env, ["cloudwatch", "describe-alarms", "--alarm-names", alarm_name])
+    alarms = (alarm_data or {}).get("MetricAlarms", [])
+    checks.append(check(
+        "root-alarm",
+        "Root account usage alarm sends to the assigned topic",
+        alarm_error is None
+        and any(
+            alarm.get("MetricName") == "RootAccountUsage"
+            and alarm.get("ActionsEnabled") is True
+            and topic_arn in alarm.get("AlarmActions", [])
+            for alarm in alarms
+        ),
+        "Create the expected root account usage alarm and route it to the assigned security-alerts topic.",
+    ))
+
+    handoff = ssh_text(args, "cat ~/work/aws/findings.md 2>/dev/null")
+    findings = handoff.stdout if handoff.returncode == 0 else ""
+    checks.append(check(
+        "findings",
+        "Findings handoff records assigned resources and final state",
+        handoff.returncode == 0 and findings_handoff_ok(findings, outputs),
+        "Update findings.md with assigned resource IDs/names, the alarm topic, a RootAccountUsage alarm reference, and a completed Target State Checklist row for each item (enabled/disabled/removed/true/false).",
+    ))
+
+    emit(checks)
+
+
+if __name__ == "__main__":
+    main()

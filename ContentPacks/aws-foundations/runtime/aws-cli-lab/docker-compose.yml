@@ -1,0 +1,11 @@
+services:
+  lab:
+    build:
+      context: .
+    command: ["/usr/sbin/sshd", "-D", "-e"]
+    stop_grace_period: 10s
+    volumes:
+      - ../aws-session:/opt/opscoach/aws-session:ro
+      - ../aws-workspace:/home/learner/work/aws:rw
+    ports:
+      - "127.0.0.1::22"

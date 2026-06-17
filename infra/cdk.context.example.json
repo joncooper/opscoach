@@ -1,0 +1,27 @@
+{
+  "envs": {
+    "dev": {
+      "account": "123456789012",
+      "region": "us-east-1"
+    }
+  },
+  "platformVpcId": "vpc-xxxxxxxx",
+  "platformClusterName": "your-cluster",
+  "platformAlbArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/...",
+  "platformAlbSecurityGroupId": "sg-xxxxxxxx",
+  "platformHttpsListenerArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/.../.../...",
+  "platformCloudMapNamespaceId": "ns-xxxxxxxx",
+  "platformCloudMapNamespaceArn": "arn:aws:servicediscovery:us-east-1:123456789012:namespace/ns-xxxxxxxx",
+  "platformCloudMapNamespaceName": "ops.internal",
+  "dnsZoneName": "ops.example.com",
+  "opscoachHostLabel": "opscoach",
+  "opscoachListenerPriority": 40,
+  "opscoachListenerBypassPriority": 39,
+  "opscoachEcrRepository": "your-org/opscoach-web",
+  "platformCognitoUserPoolId": "us-east-1_XXXXXXXXX",
+  "platformCognitoDomainName": "your-pool.auth.us-east-1.amazoncognito.com",
+  "region": "us-east-1",
+  "idleTimeoutMinutes": 10,
+  "maxLifetimeMinutes": 60,
+  "sshIdleGraceSeconds": 120
+}

@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+import argparse, json, re, subprocess
+from types import SimpleNamespace
+
+def ssh(args, command, timeout=20):
+    ssh_args = [
+        "ssh",
+        "-i", args.ssh_key,
+        "-p", str(args.ssh_port),
+        "-o", "IdentitiesOnly=yes",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", f"UserKnownHostsFile={args.known_hosts}",
+        "-o", "ConnectTimeout=5",
+        # Reuse one multiplexed SSH connection per lab (shared with the dashboard proxy)
+        # so the live grade poll doesn't re-handshake every few seconds.
+        "-o", "ControlMaster=auto",
+        "-o", "ControlPath=/tmp/opscoach-ssh-%h-%p-%r",
+        "-o", "ControlPersist=45s",
+        f"{args.ssh_user}@{args.ssh_hostname}",
+        command,
+    ]
+    try:
+        return subprocess.run(ssh_args, text=True, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        return SimpleNamespace(returncode=124, stdout=exc.stdout or "", stderr=exc.stderr or "ssh timed out")
+
+def clean_label(name):
+    return name.split(" - ", 1)[0].strip().rstrip(".")
+
+def parse_checks(text):
+    checks_by_id = {}
+    for line in text.splitlines():
+        m = re.match(r"\[(.)\]\s+(\d{2})\s+([^:]+):?\s*(.*)", line)
+        if not m:
+            continue
+        mark, num, name, detail = m.groups()
+        check_id = f"lantern-{num}"
+        checks_by_id.setdefault(check_id, {
+            "id": check_id,
+            "status": "pass" if mark == "✓" else "fail",
+            "label": clean_label(name),
+            "detail": detail.strip(),
+        })
+    return [checks_by_id[key] for key in sorted(checks_by_id)]
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--session", required=True)
+    p.add_argument("--ssh-key", required=True)
+    p.add_argument("--ssh-port", required=True)
+    p.add_argument("--ssh-user", required=True)
+    p.add_argument("--ssh-hostname", required=True)
+    p.add_argument("--known-hosts", required=True)
+    p.add_argument("--mode", required=True)
+    args = p.parse_args()
+    cp = ssh(args, "ops verify all --force; ops status", timeout=90)
+    text = cp.stdout + cp.stderr
+    checks = parse_checks(text)
+    if not checks:
+        checks = [{"id": "ssh", "status": "fail", "label": "Beaconkeeper grader could not read ops output", "detail": ""}]
+    passed = sum(1 for c in checks if c["status"] == "pass")
+    print(json.dumps({"labId": "beaconkeeper", "checks": checks, "score": {"passed": passed, "total": len(checks)}}))
+
+if __name__ == "__main__":
+    main()

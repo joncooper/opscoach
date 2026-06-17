@@ -1,0 +1,51 @@
+{
+  "id": "aws-foundations",
+  "title": "AWS Foundations",
+  "version": "0.1.4",
+  "modules": [
+    {
+      "id": "aws-security",
+      "title": "AWS Security",
+      "summary": "Practice command-line AWS inspection and small, bounded security remediations.",
+      "labs": [
+        {
+          "id": "aws-security-basics",
+          "title": "AWS Security Basics",
+          "kind": "drill",
+          "summary": "Use the AWS CLI to bring assigned resources to a clearly stated security baseline.",
+          "estimatedMinutes": 45,
+          "prompt": "You are working in a dedicated AWS lab account with short-lived credentials. Start in ~/work/aws: read README.md for the full target state and use resource-map.env (loaded automatically in new shells) for assigned bucket, security group, launch template, trail, and SNS topic names/IDs. Work in order: (1) describe/get each assigned resource and note the starting state; (2) apply remediations; (3) re-describe to confirm; (4) update findings.md with assigned IDs and your verified final checklist state. Bring only those assigned resources to this final state: the research bucket has versioning enabled and all four public-access-block controls enabled; the security group no longer allows public SSH from 0.0.0.0/0 but keeps internal HTTPS from 10.44.0.0/16; the default launch template version does not assign a public IP, requires IMDSv2 tokens, and uses encrypted root storage; the CloudTrail trail has log file validation enabled; create the lab's root-account CloudWatch alarm (OpsCoach-<session>-RootAccountUsage per README and templates/root-account-alarm.json — this lab uses a convention metric namespace, not a full CloudTrail metric-filter pipeline) and route it to the assigned SNS topic. Use starter request bodies in templates/ when you need dense AWS JSON. In findings.md, checklist rows must reflect post-remediation state you verified — not copied placeholders.",
+          "hints": [
+            "Confirm assigned names with resource-map.env and README.md before changing anything; use get/describe first.",
+            "Edit templates in templates/ for dense JSON (public access block, revoke-public-ssh-rule.json for revoke-security-group-ingress, launch template data, root-account alarm).",
+            "findings.md shows format examples only — replace each checklist row with the state you verified after remediation.",
+            "After launch template changes, set the corrected version as default; list assigned resource IDs/names, alarm topic, and final checklist state in findings.md."
+          ],
+          "runtime": {
+            "directory": "runtime/aws-cli-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "aws-security-basics.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "aws-security-basics"
+          },
+          "aws": {
+            "scenarioStackName": "OpsCoachAwsSecurityBasicsScenario",
+            "platformStackName": "OpsCoachAwsPlatform",
+            "region": "us-east-1",
+            "sourceProfile": "platform",
+            "labAdminProfile": "opscoach-lab-admin",
+            "candidateRoleOutput": "CandidateRoleArn",
+            "graderRoleOutput": "GraderRoleArn",
+            "starterFilesDirectory": "templates/aws-security-basics"
+          },
+          "grader": {
+            "executable": "grader/aws-security-basics/run"
+          }
+        }
+      ]
+    }
+  ]
+}

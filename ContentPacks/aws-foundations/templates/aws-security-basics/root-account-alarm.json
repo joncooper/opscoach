@@ -1,0 +1,17 @@
+{
+  "AlarmName": "OpsCoach-REPLACE_SESSION_ID-RootAccountUsage",
+  "AlarmDescription": "Ops Coach lab alarm for root account usage.",
+  "Namespace": "CloudTrailMetrics",
+  "MetricName": "RootAccountUsage",
+  "Statistic": "Sum",
+  "Period": 300,
+  "EvaluationPeriods": 1,
+  "DatapointsToAlarm": 1,
+  "Threshold": 1,
+  "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+  "TreatMissingData": "notBreaching",
+  "ActionsEnabled": true,
+  "AlarmActions": [
+    "REPLACE_WITH_ALARM_TOPIC_ARN"
+  ]
+}

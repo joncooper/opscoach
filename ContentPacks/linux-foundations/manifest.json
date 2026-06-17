@@ -1,0 +1,392 @@
+{
+  "id": "linux-foundations",
+  "title": "Linux Foundations",
+  "version": "0.3.2",
+  "modules": [
+    {
+      "id": "orientation-search",
+      "title": "Orientation and Search",
+      "summary": "Build shell fluency with navigation, inspection, find, and grep.",
+      "labs": [
+        {
+          "id": "shell-orientation",
+          "title": "Shell Orientation",
+          "kind": "drill",
+          "summary": "Navigate a new host, locate a reference file, and record orientation facts.",
+          "estimatedMinutes": 12,
+          "prompt": "Orient yourself on this host without changing system state. A reference file named welcome.txt exists somewhere on the filesystem—it may not live under your home directory. Use normal shell tools to locate it (start find from / if you know the filename but not the directory). Create ~/work/orientation/summary.txt with one fact per line in this order: your username (from whoami), hostname (from hostname), home directory path, kernel name from uname -s, and the absolute path to welcome.txt.",
+          "hints": [
+            "whoami, hostname, echo $HOME, and uname report identity and environment facts.",
+            "If welcome.txt is not under your home directory, search from / with find and redirect permission errors.",
+            "Use mkdir -p ~/work/orientation before writing summary.txt."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "shell-orientation.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "shell-orientation"
+          },
+          "grader": {
+            "executable": "grader/shell-orientation/run"
+          }
+        },
+        {
+          "id": "find-grep",
+          "title": "find / grep Investigation",
+          "kind": "drill",
+          "summary": "Locate buried files and extract matching operational facts.",
+          "estimatedMinutes": 15,
+          "prompt": "Inspect the files under ~/work/search only (ignore system logs outside that tree). Create ~/work/search/findings.txt that records: (1) the incident code value, (2) the path to the file where you found it, and (3) the full text of every line containing the phrase retry budget exhausted (there are two such lines under ~/work/search—copy each line exactly).",
+          "hints": [
+            "Use find under ~/work/search to list candidates, then grep -R for the incident code and retry messages.",
+            "The incident code appears as incident_code=... in one of the archive files.",
+            "Include complete matching lines in findings.txt so another operator can verify them without re-running your search."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "find-grep.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "find-grep"
+          },
+          "grader": {
+            "executable": "grader/find-grep/run"
+          }
+        }
+      ]
+    },
+    {
+      "id": "command-fluency",
+      "title": "Command Fluency",
+      "summary": "Build fast recall of common Linux commands across the alphabet.",
+      "labs": [
+        {
+          "id": "command-alphabet",
+          "title": "Command Alphabet",
+          "kind": "drill",
+          "surface": "commandAlphabet",
+          "summary": "Vocabulary warm-up only — click Open Game for the alphabet panel; no Docker/SSH session and no host grader.",
+          "estimatedMinutes": 8,
+          "prompt": "This is a vocabulary and recall warm-up—not a remote shell lab. Click Open Game to open the Command Alphabet panel (no container or SSH session is started). Name one Linux command for each letter A through Z using commands available in the foundations lab image. Only the first word of each answer is scored; arguments and paths are ignored. Builtins, core utilities, networking tools, service commands, and common administration commands all count.",
+          "hints": [
+            "Open Game starts the alphabet panel only — you will not get a terminal for this lab.",
+            "Only the first command word is scored; ls -la counts as ls.",
+            "Think across navigation, text processing, networking, users, packages, compression, and services.",
+            "Sparse letters in this image: J (join, journalctl, jobs), K (kill, ksh), O (od, openssl), X (xargs), Y (yes)."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "command-alphabet.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "command-alphabet"
+          },
+          "grader": {
+            "executable": "grader/command-alphabet/run"
+          }
+        }
+      ]
+    },
+    {
+      "id": "files-permissions",
+      "title": "Files and Permissions",
+      "summary": "Practice file movement, links, permissions, and umask.",
+      "labs": [
+        {
+          "id": "files-perms-umask",
+          "title": "Permissions and umask",
+          "kind": "drill",
+          "summary": "Create private working files from an access policy and a reusable creation-mask launcher.",
+          "estimatedMinutes": 18,
+          "prompt": "Set up a private notes workspace under ~/work/perms/private. Create the directory and files as your logged-in account; they should remain owned by your user and primary group. The directory should give the owner full access, allow the owning group to list and enter it, and block everyone else. Copy ~/work/perms/template.txt into that directory as secure-notes.txt; the notes file should be owner-editable, group-readable, and inaccessible to everyone else. Add an executable new-files-are-private.sh in the same directory that sets umask 027 (a private default creation mask), creates created-by-umask.txt there, then run the script once so the new file matches the same private policy.",
+          "hints": [
+            "Check your current user, primary group, and the existing owner/group before changing modes.",
+            "Directories need execute permission to be entered; regular files do not.",
+            "umask 027 removes group-write and all other-user permissions from newly created files."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "files-perms-umask.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "files-perms-umask"
+          },
+          "grader": {
+            "executable": "grader/files-perms-umask/run"
+          }
+        },
+        {
+          "id": "copy-move-links",
+          "title": "cp / mv / ln Drill",
+          "kind": "drill",
+          "summary": "Use copy, move, symbolic links, and hard links deliberately.",
+          "estimatedMinutes": 15,
+          "prompt": "Build a small release tree under ~/work/releases. Copy ~/work/files/app.conf.template to ~/work/releases/app.conf. Move ~/work/files/draft-runbook.md to ~/work/releases/runbook.md (the draft should no longer exist at its original path). Create ~/work/current.conf as a symbolic link to releases/app.conf. Create ~/work/releases/app.conf.hardlink as a hard link to app.conf in that same directory.",
+          "hints": [
+            "cp, mv, ln -s, and ln cover the required operations.",
+            "A hard link shares the same inode as the source file in the same filesystem.",
+            "Prefer a relative symlink target when linking inside the same tree."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "copy-move-links.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "copy-move-links"
+          },
+          "grader": {
+            "executable": "grader/copy-move-links/run"
+          }
+        }
+      ]
+    },
+    {
+      "id": "services-observability",
+      "title": "Services and Observability",
+      "summary": "Inspect ports, HTTP endpoints, logs, and systemd units.",
+      "labs": [
+        {
+          "id": "processes-ports-curl",
+          "title": "Processes, Ports, and curl",
+          "kind": "drill",
+          "summary": "Find a local HTTP service, verify it with curl, and capture evidence.",
+          "estimatedMinutes": 18,
+          "prompt": "The opscoach-api service listens on localhost port 8080. Run curl against http://127.0.0.1:8080/health and save the full response body to ~/work/network/api-status.txt (it should include opscoach-api ok). Use ss, lsof, or ps to identify the listener and save that command output to ~/work/network/listener.txt—your evidence must show port 8080 and tie it to the opscoach-api process (ss may show python; include ps or the binary path if needed).",
+          "hints": [
+            "curl -fsS http://127.0.0.1:8080/health > ~/work/network/api-status.txt captures the health response.",
+            "ss -ltnp, lsof -i :8080, or ps combined with ss can tie port 8080 to opscoach-api.",
+            "Redirect or tee ss/lsof/ps output into listener.txt so both 8080 and opscoach-api appear in the file."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "processes-ports-curl.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "processes-ports-curl"
+          },
+          "grader": {
+            "executable": "grader/processes-ports-curl/run"
+          }
+        },
+        {
+          "id": "logs-systemd",
+          "title": "Logs and systemd",
+          "kind": "drill",
+          "summary": "Use logs, grep, and systemctl to bring a unit into the desired state.",
+          "estimatedMinutes": 22,
+          "prompt": "Investigate /var/log/opscoach/worker.log and create ~/work/logs/errors.txt containing every ERROR line (the log has two distinct ERROR messages). Then use sudo with systemctl to start and enable opscoach-agent.service. When the unit is active, it creates /run/opscoach/agent.ready.",
+          "hints": [
+            "grep ERROR /var/log/opscoach/worker.log > ~/work/logs/errors.txt captures both error lines.",
+            "Use sudo systemctl start opscoach-agent.service and sudo systemctl enable opscoach-agent.service.",
+            "Confirm with sudo systemctl is-active opscoach-agent.service and test -f /run/opscoach/agent.ready."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "logs-systemd.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "logs-systemd"
+          },
+          "grader": {
+            "executable": "grader/logs-systemd/run"
+          }
+        }
+      ]
+    },
+    {
+      "id": "access",
+      "title": "Users, SSH, and sudo",
+      "summary": "Practice setting up a new operator account on a fresh machine.",
+      "labs": [
+        {
+          "id": "users-ssh-sudo",
+          "title": "New Operator Setup",
+          "kind": "drill",
+          "summary": "Create a user, install an SSH key, manage groups, and grant scoped sudo access.",
+          "estimatedMinutes": 25,
+          "prompt": "Prepare a new operations login on this host. The login name must be opsoperator; create the account with a home directory. Add opsoperator to the ops group (ops team) and to sudo for normal operator access. Install the supplied public key from /opt/opscoach/reference/operator_ed25519.pub into /home/opsoperator/.ssh/authorized_keys with .ssh directory mode 700 and authorized_keys mode 600. Finally, add a sudoers drop-in granting the ops group passwordless sudo for systemctl status opscoach-agent.service only—members must not get passwordless start, stop, or other systemctl commands for that service.",
+          "hints": [
+            "useradd -m -G ops,sudo opsoperator creates the account with home and both groups.",
+            "mkdir -p /home/opsoperator/.ssh && cp /opt/opscoach/reference/operator_ed25519.pub /home/opsoperator/.ssh/authorized_keys && chown -R opsoperator:opsoperator /home/opsoperator/.ssh && chmod 700 /home/opsoperator/.ssh && chmod 600 /home/opsoperator/.ssh/authorized_keys",
+            "Add %ops ALL=(ALL) NOPASSWD: $(command -v systemctl) status opscoach-agent.service under /etc/sudoers.d/ and run visudo -cf to validate."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "users-ssh-sudo.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "users-ssh-sudo"
+          },
+          "grader": {
+            "executable": "grader/users-ssh-sudo/run"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vara-lab-prep",
+      "title": "VARA Lab Prep",
+      "summary": "Fast reps for the Linux, SSH, networking, and cloud-security topics discussed for the VARA technical lab.",
+      "labs": [
+        {
+          "id": "vara-ssh-log-triage",
+          "title": "SSH Log Triage",
+          "kind": "drill",
+          "summary": "Investigate failed SSH authentication attempts and summarize evidence.",
+          "estimatedMinutes": 12,
+          "prompt": "Investigate recent SSH authentication failures on this host. Start from /var/log/auth.log or, if your distro uses journald, authpriv/ssh journal entries. Fill in the starter report at ~/work/vara/ssh/failed-ssh.txt using these fields: FAILED_AUTH_COUNT (total failed password attempts across all source IPs), TOP_SOURCE_IP (most frequent source IP), and a SOURCE_LOG_LINES section listing the failed-authentication log lines for that source IP.",
+          "hints": [
+            "Start from /var/log/auth.log or journalctl authpriv/ssh output — not application logs.",
+            "FAILED_AUTH_COUNT is the total number of failed-password lines, not the count for a single IP.",
+            "grep and sort/uniq can turn repeated log lines into counts.",
+            "Under SOURCE_LOG_LINES:, paste the raw failed-auth lines for TOP_SOURCE_IP so another operator can verify your count."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "vara-ssh-log-triage.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "vara-ssh-log-triage"
+          },
+          "grader": {
+            "executable": "grader/vara-ssh-log-triage/run"
+          }
+        },
+        {
+          "id": "vara-account-sudo-audit",
+          "title": "Account and Sudo Audit",
+          "kind": "drill",
+          "summary": "Audit local account state and remove unintended sudo access.",
+          "estimatedMinutes": 15,
+          "prompt": "Discover local accounts and privileged access from local evidence (/etc/passwd, /etc/shadow, group membership, sudoers). Fill in the starter template at ~/work/vara/accounts/audit.txt using LOCKED_ACCOUNT=, UNEXPECTED_SUDO_ACCOUNT=, and an EVIDENCE: section with supporting observations. Remove sudo access only from the unexpected account while keeping learner operator access intact.",
+          "hints": [
+            "Use /etc/passwd, /etc/shadow, and group membership before editing anything.",
+            "Account lock state and login shell are separate pieces of evidence.",
+            "Fill LOCKED_ACCOUNT= and UNEXPECTED_SUDO_ACCOUNT= with usernames; use EVIDENCE: for the observations that support your conclusions.",
+            "Remove the smallest privilege needed — do not strip learner's operator access."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "vara-account-sudo-audit.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "vara-account-sudo-audit"
+          },
+          "grader": {
+            "executable": "grader/vara-account-sudo-audit/run"
+          }
+        },
+        {
+          "id": "vara-ports-processes",
+          "title": "Ports and Processes",
+          "kind": "drill",
+          "summary": "Map a listening socket to its process and service, then remove the unexpected listener.",
+          "estimatedMinutes": 15,
+          "prompt": "Inventory local TCP listeners and identify the unexpected debug listener on port 9091. Fill in the starter template at ~/work/vara/network/listeners.txt using PORT=, PROCESS=, and UNIT= for that listener. Stop and disable only the owning service while keeping the expected training API on port 8080 available.",
+          "hints": [
+            "ss or lsof can show the process behind a listening port.",
+            "systemctl can map a process back to its owning unit when the listener is service-owned.",
+            "Fill PORT=, PROCESS=, and UNIT= for the 9091 listener — ss may show the process as vara-debug-listener or python."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "vara-ports-processes.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "vara-ports-processes"
+          },
+          "grader": {
+            "executable": "grader/vara-ports-processes/run"
+          }
+        },
+        {
+          "id": "vara-ssh-hardening",
+          "title": "SSH Hardening",
+          "kind": "drill",
+          "summary": "Apply a small SSH hardening policy and validate the effective configuration.",
+          "estimatedMinutes": 18,
+          "prompt": "Apply this SSH policy via a drop-in under /etc/ssh/sshd_config.d/ (preferred) rather than rewriting the main sshd_config: password authentication disabled, root login disabled, X11 forwarding disabled, and MaxAuthTries set to 3. Validate with `sudo sshd -t`, reload SSH, then save the effective configuration output of `sudo sshd -T` to ~/work/vara/ssh-hardening/effective.txt.",
+          "hints": [
+            "Prefer a focused drop-in under /etc/ssh/sshd_config.d/ over editing the main sshd_config.",
+            "Run `sudo sshd -T` and save that output to effective.txt — the effective config is what matters.",
+            "Validate with `sudo sshd -t` before reloading or restarting SSH."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "vara-ssh-hardening.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "vara-ssh-hardening"
+          },
+          "grader": {
+            "executable": "grader/vara-ssh-hardening/run"
+          }
+        },
+        {
+          "id": "vara-aws-security-review",
+          "title": "AWS Security Review",
+          "kind": "drill",
+          "summary": "Review captured AWS configuration evidence for common security posture gaps.",
+          "estimatedMinutes": 18,
+          "prompt": "Review the captured AWS JSON evidence under ~/work/vara/aws/. Fill in the starter template at ~/work/vara/aws/security-review.txt using the KEY=value format shown there. Record the observed value for each field — not just pass/fail conclusions. Derivation rules: S3_VERSIONING from s3.json Status; S3_PUBLIC_ACCESS_BLOCK=true only if all four Block* settings in s3.json PublicAccessBlockConfiguration are true, otherwise false; EC2_PUBLIC_IP from launch-template.json NetworkInterfaces AssociatePublicIpAddress; IMDS_HTTP_TOKENS from launch-template.json MetadataOptions HttpTokens; ROOT_VOLUME_ENCRYPTED from launch-template.json BlockDeviceMappings Ebs Encrypted; INSTANCE_PROFILE=missing when launch-template.json IamInstanceProfile is null, otherwise record the profile name; CLOUDTRAIL_LOG_VALIDATION from cloudtrail.json LogFileValidationEnabled; ROOT_ACCOUNT_ALARM=missing if no alarm in cloudwatch-alarms.json monitors root account usage (ConsoleLoginFailures alone does not count), present if such an alarm exists.",
+          "hints": [
+            "This is an offline review; do not try to contact real AWS.",
+            "Use jq to extract precise values: s3.json, launch-template.json, cloudtrail.json, cloudwatch-alarms.json.",
+            "S3_PUBLIC_ACCESS_BLOCK requires all four BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy, and RestrictPublicBuckets to be true.",
+            "ROOT_ACCOUNT_ALARM looks for root-account usage coverage — ConsoleLoginFailures is not sufficient."
+          ],
+          "runtime": {
+            "directory": "runtime/foundations-lab",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "lab",
+            "sshUser": "learner",
+            "sshHostAlias": "vara-aws-security-review.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/opt/opscoach/private/learner_ed25519",
+            "defaultSeed": "vara-aws-security-review"
+          },
+          "grader": {
+            "executable": "grader/vara-aws-security-review/run"
+          }
+        }
+      ]
+    }
+  ]
+}

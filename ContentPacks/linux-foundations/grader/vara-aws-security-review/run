@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+import argparse, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lib import add_ssh_args, check, emit
+p = argparse.ArgumentParser(); p.add_argument('--session', required=True); add_ssh_args(p); p.add_argument('--mode', required=True); args = p.parse_args()
+aws = "cd ~/work/vara/aws"
+checks = [
+    check(args, "report-exists", "AWS review report exists", "test -f ~/work/vara/aws/security-review.txt", "Create ~/work/vara/aws/security-review.txt."),
+    check(args, "s3-versioning-derived", "S3 versioning matches JSON evidence", f"""{aws} && test "$(grep '^S3_VERSIONING=' security-review.txt | cut -d= -f2-)" = "$(jq -r '.Status' s3.json)" """, "Set S3_VERSIONING from s3.json Status with jq."),
+    check(args, "s3-public-block-derived", "S3 public block matches JSON evidence", f"""{aws} && report="$(grep '^S3_PUBLIC_ACCESS_BLOCK=' security-review.txt | cut -d= -f2-)" && expected="$(jq -r 'if [.PublicAccessBlockConfiguration.BlockPublicAcls, .PublicAccessBlockConfiguration.IgnorePublicAcls, .PublicAccessBlockConfiguration.BlockPublicPolicy, .PublicAccessBlockConfiguration.RestrictPublicBuckets] | all then "true" else "false" end' s3.json)" && test "$report" = "$expected" """, "Set S3_PUBLIC_ACCESS_BLOCK=true only when all four Block* flags in s3.json are true."),
+    check(args, "ec2-public-ip-derived", "EC2 public IP matches JSON evidence", f"""{aws} && test "$(grep '^EC2_PUBLIC_IP=' security-review.txt | cut -d= -f2- | tr '[:upper:]' '[:lower:]')" = "$(jq -r '.LaunchTemplateVersions[0].LaunchTemplateData.NetworkInterfaces[0].AssociatePublicIpAddress' launch-template.json | tr '[:upper:]' '[:lower:]')" """, "Derive EC2_PUBLIC_IP from launch-template.json NetworkInterfaces."),
+    check(args, "imds-derived", "IMDS tokens match JSON evidence", f"""{aws} && test "$(grep '^IMDS_HTTP_TOKENS=' security-review.txt | cut -d= -f2-)" = "$(jq -r '.LaunchTemplateVersions[0].LaunchTemplateData.MetadataOptions.HttpTokens' launch-template.json)" """, "Derive IMDS_HTTP_TOKENS from launch-template.json MetadataOptions."),
+    check(args, "root-volume-derived", "Root volume encryption matches JSON evidence", f"""{aws} && test "$(grep '^ROOT_VOLUME_ENCRYPTED=' security-review.txt | cut -d= -f2- | tr '[:upper:]' '[:lower:]')" = "$(jq -r '.LaunchTemplateVersions[0].LaunchTemplateData.BlockDeviceMappings[0].Ebs.Encrypted' launch-template.json | tr '[:upper:]' '[:lower:]')" """, "Derive ROOT_VOLUME_ENCRYPTED from launch-template.json BlockDeviceMappings."),
+    check(args, "instance-profile-derived", "Instance profile matches JSON evidence", f"""{aws} && report="$(grep '^INSTANCE_PROFILE=' security-review.txt | cut -d= -f2-)" && expected="$(jq -r 'if .LaunchTemplateVersions[0].LaunchTemplateData.IamInstanceProfile == null then "missing" else (.LaunchTemplateVersions[0].LaunchTemplateData.IamInstanceProfile.Arn // "present") end' launch-template.json)" && test "$report" = "$expected" """, "Use jq on launch-template.json IamInstanceProfile; write missing when null."),
+    check(args, "cloudtrail-derived", "CloudTrail validation matches JSON evidence", f"""{aws} && test "$(grep '^CLOUDTRAIL_LOG_VALIDATION=' security-review.txt | cut -d= -f2- | tr '[:upper:]' '[:lower:]')" = "$(jq -r '.trailList[0].LogFileValidationEnabled' cloudtrail.json | tr '[:upper:]' '[:lower:]')" """, "Derive CLOUDTRAIL_LOG_VALIDATION from cloudtrail.json."),
+    check(args, "root-alarm", "Root account alarm coverage recorded", f"grep -q '^ROOT_ACCOUNT_ALARM=missing$' ~/work/vara/aws/security-review.txt", "Record missing when cloudwatch-alarms.json lacks root-account usage coverage."),
+]
+emit("vara-aws-security-review", checks)

@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+import argparse, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lib import add_ssh_args, check, emit
+p = argparse.ArgumentParser(); p.add_argument('--session', required=True); add_ssh_args(p); p.add_argument('--mode', required=True); args = p.parse_args()
+listener_ok = (
+    'test -f ~/work/network/listener.txt && grep -q "8080" ~/work/network/listener.txt && '
+    '(grep -q "opscoach-api" ~/work/network/listener.txt || '
+    '(grep -qi "python" ~/work/network/listener.txt && grep -qE "/usr/local/bin/opscoach-api|opscoach-api" ~/work/network/listener.txt))'
+)
+checks=[
+ check(args,'api-running','API service is listening on 8080','curl -fsS http://127.0.0.1:8080/health | grep -q "opscoach-api ok"','The local API should answer /health.'),
+ check(args,'curl-captured','Health response captured','grep -q "opscoach-api ok" ~/work/network/api-status.txt','Write curl output to ~/work/network/api-status.txt.'),
+ check(args,'listener-captured','Listener evidence captured',listener_ok,'Capture ss/lsof/ps evidence tying port 8080 to the opscoach-api process (python output is fine if you also reference opscoach-api or its binary path).'),
+]
+emit('processes-ports-curl',checks)

@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Next.js build output
+.next/
+**/.next/
+
+# Generic build output
+dist/
+**/dist/
+*.tsbuildinfo
+
+# AWS CDK
+cdk.out/
+**/cdk.out/
+**/cdk.context.json
+cdk-outputs.json
+**/cdk-outputs.json
+deploy-outputs.json
+**/deploy-outputs.json
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Local session/workspace scratch
+.local-sessions/
+
+# Logs
+*.log
+
+# Python caches
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# OS / editor cruft
+.DS_Store

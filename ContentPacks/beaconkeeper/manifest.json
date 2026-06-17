@@ -1,0 +1,40 @@
+{
+  "id": "beaconkeeper",
+  "title": "Beaconkeeper Capstone",
+  "version": "0.1.0",
+  "modules": [
+    {
+      "id": "capstones",
+      "title": "Capstones",
+      "summary": "Full-system Linux operations scenarios.",
+      "labs": [
+        {
+          "id": "beaconkeeper",
+          "title": "Beaconkeeper: Twenty Lanterns to Dawn",
+          "kind": "capstone",
+          "summary": "Night watch on a broken Ubuntu host. The Beacon service is dark and twenty things are wrong — diagnose and repair them with everyday Linux tools, and light every lantern before dawn.",
+          "estimatedMinutes": 90,
+          "prompt": "You've taken the night watch on harbor, an Ubuntu host whose Beacon service went dark after a sloppy maintenance shift — the dashboard is wrong or missing. Restore it to a healthy, supportable state using ordinary Linux tools: twenty concrete repairs spanning services, logs, permissions, nginx routing, releases, data, backups, and operator access. Log in as keeper — work right here in the browser shell or SSH in from your own terminal, your choice — and run ops status to see all twenty checkpoints; a short brief prints on login. Work from evidence on the host rather than guessing, and preserve useful data as you go. Use ops verify <n> to light each lantern as you repair it, and ops hint <n> when you want a nudge. Leave a concise operator handoff in /srv/beacon/RUNBOOK.md covering final state, health checks, deploy and rollback, logs, backups, and access. A few checkpoints want real rigor rather than surface fixes — logrotate must pass a dry run, and the new operator needs a restrictive umask. Light all twenty lanterns before dawn.",
+          "hints": [
+            "The lab brief prints on login; ops brief and ops status list all 20 checkpoints—each line includes the objective text ops verify checks.",
+            "Work in phases: orient (chart, facts, cleanup) → services (API, worker, nginx) → deploy and data → handoff (backups, logrotate, operator, runbook).",
+            "Expect work across services, logs, permissions, HTTP/nginx routing, release data, backups, and operator access.",
+            "Use ops verify <n|all> only when local evidence supports the fix; finish with a complete /srv/beacon/RUNBOOK.md handoff.",
+            "Fill /srv/beacon/OPERATOR_FACTS with KEY=value lines matching the local chart: SERVICE_NAME, APP_ROOT, INTERNAL_PORT, PUBLIC_HEALTH_URL, DB_PATH, BACKUP_DIR."
+          ],
+          "runtime": {
+            "directory": "runtime",
+            "composeFile": "docker-compose.yml",
+            "serviceName": "beaconkeeper",
+            "sshUser": "keeper",
+            "sshHostAlias": "beaconkeeper.internal",
+            "sshContainerPort": 22,
+            "privateKeyContainerPath": "/usr/local/lib/beaconkeeper/private/keeper_ed25519",
+            "defaultSeed": "opscoach-beaconkeeper"
+          },
+          "grader": { "executable": "grader/beaconkeeper/run" }
+        }
+      ]
+    }
+  ]
+}

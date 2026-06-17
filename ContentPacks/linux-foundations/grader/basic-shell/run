@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+import argparse, json, subprocess
+from types import SimpleNamespace
+
+def ssh(args, command):
+    try:
+        return subprocess.run([
+            "ssh", "-i", args.ssh_key, "-p", str(args.ssh_port),
+            "-o", "IdentitiesOnly=yes",
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", f"UserKnownHostsFile={args.known_hosts}",
+            "-o", "ConnectTimeout=5",
+            f"{args.ssh_user}@{args.ssh_hostname}", command,
+        ], text=True, capture_output=True, timeout=10)
+    except subprocess.TimeoutExpired as exc:
+        return SimpleNamespace(returncode=124, stdout=exc.stdout or "", stderr=exc.stderr or "ssh timed out")
+
+def check(args, check_id, label, command, detail):
+    cp = ssh(args, command)
+    ok = cp.returncode == 0
+    return {"id": check_id, "status": "pass" if ok else "fail", "label": label, "detail": "ok" if ok else detail}
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--session", required=True)
+    p.add_argument("--ssh-key", required=True)
+    p.add_argument("--ssh-port", required=True)
+    p.add_argument("--ssh-user", required=True)
+    p.add_argument("--ssh-hostname", required=True)
+    p.add_argument("--known-hosts", required=True)
+    p.add_argument("--mode", required=True)
+    args = p.parse_args()
+    checks = [
+        check(args, "report", "Report contains discovered value", "grep -q 'needle=harbor' ~/work/report.txt", "Create ~/work/report.txt with the discovered needle value."),
+        check(args, "secure-copy", "Secure file has conservative permissions", 'test -f ~/work/secure.txt && test "$(stat -c %a ~/work/secure.txt)" = 640', "Create ~/work/secure.txt and set mode 640."),
+        check(args, "latest-link", "latest points to the report", 'test -L ~/work/latest && test "$(readlink -f ~/work/latest)" = "$(readlink -f ~/work/report.txt)"', "Make ~/work/latest a symlink to report.txt."),
+    ]
+    passed = sum(1 for c in checks if c["status"] == "pass")
+    print(json.dumps({"labId": "basic-shell", "checks": checks, "score": {"passed": passed, "total": len(checks)}}))
+
+if __name__ == "__main__":
+    main()

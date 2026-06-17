@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+import argparse, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lib import add_ssh_args, check, emit
+p = argparse.ArgumentParser(); p.add_argument('--session', required=True); add_ssh_args(p); p.add_argument('--mode', required=True); args = p.parse_args()
+report='~/work/search/findings.txt'
+checks=[
+ check(args,'incident-code','Findings include incident code',f'grep -q BK-2049 {report}','Record incident_code=BK-2049.'),
+ check(args,'incident-path','Findings include source path',f'grep -q "region-a/archive/incident-archive.txt" {report}','Include the file path that contained the incident code.'),
+ check(args,'retry-lines','Findings include retry budget lines',f'grep -Fq "2026-06-12T09:31:00Z retry budget exhausted for queue=images" {report} && grep -Fq "2026-06-12T09:32:00Z retry budget exhausted for queue=reports" {report}','Copy both full retry budget exhausted lines exactly from the lab data.'),
+]
+emit('find-grep',checks)

@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+import argparse, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lib import add_ssh_args, check, emit
+p = argparse.ArgumentParser(); p.add_argument('--session', required=True); add_ssh_args(p); p.add_argument('--mode', required=True); args = p.parse_args()
+base='~/work/perms/private'
+checks=[
+ check(args,'private-dir-owner','Private directory ownership',f'test -d {base} && test "$(stat -c %U:%G {base})" = "learner:learner"','The private directory should stay owned by learner and learner primary group.'),
+ check(args,'private-dir-mode','Private directory policy',f'test -d {base} && test "$(stat -c %a {base})" = 750','The directory should allow owner rwx, group r-x, and no access for others.'),
+ check(args,'secure-file-owner','Secure notes ownership',f'test -f {base}/secure-notes.txt && test "$(stat -c %U:%G {base}/secure-notes.txt)" = "learner:learner"','secure-notes.txt should stay owned by learner and learner primary group.'),
+ check(args,'secure-file-mode','Secure notes policy',f'test -f {base}/secure-notes.txt && test "$(stat -c %a {base}/secure-notes.txt)" = 640','secure-notes.txt should be owner read/write, group read-only, and closed to others.'),
+ check(args,'umask-script','Private creation script',f'test -x {base}/new-files-are-private.sh && grep -q "umask 027" {base}/new-files-are-private.sh','The script should be executable and set a private-by-default creation mask before creating the marker file.'),
+ check(args,'umask-created-file-owner','Script-created file ownership',f'test -f {base}/created-by-umask.txt && test "$(stat -c %U:%G {base}/created-by-umask.txt)" = "learner:learner"','created-by-umask.txt should stay owned by learner and learner primary group.'),
+ check(args,'umask-created-file','Script-created file policy',f'test -f {base}/created-by-umask.txt && test "$(stat -c %a {base}/created-by-umask.txt)" = 640','Run the script so created-by-umask.txt exists with owner read/write, group read-only, and no access for others.'),
+]
+emit('files-perms-umask',checks)

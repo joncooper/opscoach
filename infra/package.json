@@ -1,0 +1,28 @@
+{
+  "name": "opscoach-aws-infra",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "cdk": "cdk",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy --all",
+    "synth:web": "cdk synth -a 'npx ts-node --prefer-ts-exts bin/opscoach-web.ts'",
+    "deploy:web": "cdk deploy --all -a 'npx ts-node --prefer-ts-exts bin/opscoach-web.ts'",
+    "synth:platform": "cdk synth -a 'npx ts-node --prefer-ts-exts bin/opscoach-platform.ts'",
+    "deploy:platform": "cdk deploy --all -a 'npx ts-node --prefer-ts-exts bin/opscoach-platform.ts'",
+    "destroy:scenario": "cdk destroy OpsCoachAwsSecurityBasicsScenario"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.0.0",
+    "constructs": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "aws-cdk": "^2.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  }
+}

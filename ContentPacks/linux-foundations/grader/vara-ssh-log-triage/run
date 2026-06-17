@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+import argparse, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lib import add_ssh_args, check, emit
+p = argparse.ArgumentParser(); p.add_argument('--session', required=True); add_ssh_args(p); p.add_argument('--mode', required=True); args = p.parse_args()
+report = "~/work/vara/ssh/failed-ssh.txt"
+checks = [
+    check(args, "report-exists", "Starter report is available", f"test -f {report}", "Use ~/work/vara/ssh/failed-ssh.txt."),
+    check(args, "failed-count", "Failed-auth count recorded", f"grep -qE '^FAILED_AUTH_COUNT=6[[:space:]]*$' {report}", "Set FAILED_AUTH_COUNT=6 — the total failed-password lines, not a per-IP count."),
+    check(args, "top-source", "Top source IP identified", f"grep -qE '^TOP_SOURCE_IP=203\\.0\\.113\\.17[[:space:]]*$' {report}", "Set TOP_SOURCE_IP=203.0.113.17 from the auth evidence."),
+    check(args, "source-evidence", "Source evidence included", f"grep -qE '^SOURCE_LOG_LINES:' {report} && test $(grep -c '203.0.113.17' {report}) -ge 3 && grep -qi 'Failed password' {report}", "Include failed-authentication log lines for the top source under SOURCE_LOG_LINES."),
+]
+emit("vara-ssh-log-triage", checks)

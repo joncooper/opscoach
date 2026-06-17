@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+import argparse, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lib import add_ssh_args, check, emit
+p = argparse.ArgumentParser(); p.add_argument('--session', required=True); add_ssh_args(p); p.add_argument('--mode', required=True); args = p.parse_args()
+report = "~/work/vara/ssh-hardening/effective.txt"
+effective = "sudo /usr/sbin/sshd -T"
+checks = [
+    check(args, "sshd-validates", "SSH daemon config validates", "sudo /usr/sbin/sshd -t", "Validate the SSH daemon config."),
+    check(args, "password-auth", "Password authentication disabled", f"{effective} | grep -q '^passwordauthentication no$'", "Disable password authentication."),
+    check(args, "root-login", "Root login disabled", f"{effective} | grep -q '^permitrootlogin no$'", "Disable root SSH login."),
+    check(args, "x11-disabled", "X11 forwarding disabled", f"{effective} | grep -q '^x11forwarding no$'", "Disable X11 forwarding."),
+    check(args, "max-auth", "MaxAuthTries set to 3", f"{effective} | grep -q '^maxauthtries 3$'", "Set maximum authentication attempts to 3."),
+    check(args, "evidence-file", "Effective config evidence saved", f"test -f {report} && grep -q '^passwordauthentication no$' {report} && grep -q '^permitrootlogin no$' {report} && grep -q '^x11forwarding no$' {report} && grep -q '^maxauthtries 3$' {report}", "Save effective SSH config evidence in ~/work/vara/ssh-hardening/effective.txt."),
+    check(args, "evidence-live", "Saved evidence matches live sshd -T", f"sudo /usr/sbin/sshd -T | diff -q - {report}", "Reload SSH, run sudo sshd -T, then save that output to effective.txt."),
+]
+emit("vara-ssh-hardening", checks)

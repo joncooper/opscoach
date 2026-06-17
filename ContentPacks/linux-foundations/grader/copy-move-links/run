@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+import argparse, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lib import add_ssh_args, check, emit
+p = argparse.ArgumentParser(); p.add_argument('--session', required=True); add_ssh_args(p); p.add_argument('--mode', required=True); args = p.parse_args()
+checks=[
+ check(args,'copied-config','Config copied into release tree','cmp -s ~/work/files/app.conf.template ~/work/releases/app.conf','Copy app.conf.template to ~/work/releases/app.conf.'),
+ check(args,'moved-runbook','Runbook moved into release tree','test -f ~/work/releases/runbook.md && test ! -e ~/work/files/draft-runbook.md','Move draft-runbook.md into ~/work/releases/runbook.md.'),
+ check(args,'symlink-current','current.conf is a symlink to release config','test -L ~/work/current.conf && test "$(readlink -f ~/work/current.conf)" = "$(readlink -f ~/work/releases/app.conf)"','Create ~/work/current.conf as a symlink to releases/app.conf.'),
+ check(args,'hardlink-config','Hard link shares inode with app.conf','test -f ~/work/releases/app.conf && test -f ~/work/releases/app.conf.hardlink && test "$(stat -c %i ~/work/releases/app.conf)" = "$(stat -c %i ~/work/releases/app.conf.hardlink)"','Create app.conf.hardlink as a hard link.'),
+]
+emit('copy-move-links',checks)
