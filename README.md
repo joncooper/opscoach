@@ -25,11 +25,9 @@ actually accomplished on the box.
 
 ## Architecture
 
-```
-browser (xterm.js)  <-- WebSocket -->  custom Next.js server  <-- ssh2 PTY -->  lab host (EC2)
-                                              |
-                                              +-- grader / session lifecycle / dashboard
-```
+[![OpsCoach AWS architecture](docs/architecture.svg)](docs/architecture.md)
+
+> **[Full architecture & flows →](docs/architecture.md)** — request/auth, provisioning, terminal, grading, and teardown as sequence diagrams.
 
 - **Web app (`web/`)** — a Next.js app with a thin custom Node server (`web/server.js`)
   that adds a WebSocket-to-SSH bridge: the browser terminal connects over `wss`, the server
