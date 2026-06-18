@@ -22,7 +22,7 @@ So teardown has to be:
 
 ## Defense in depth: three teardown paths
 
-Teardown runs as three independent paths. Any one of them succeeding is enough, and every one is safe to run more than once. The point is that no single mechanism is trusted: the host can wedge, a callback can drop, schedule creation can fail at provision time. Layering trades extra moving parts for a hard guarantee that nothing runs forever.
+Three independent paths bring a host down, and any one is enough: an on-host **idle watcher** for the common case (the learner walks away), a one-shot **max-lifetime timer** as the hard cap, and a periodic **sweep** as the backstop for when the first two never fire. No single mechanism is trusted, because each fails in its own way: the host can wedge, a callback can drop, a schedule can fail to be created at provision. Layering trades a few extra moving parts for a hard guarantee that nothing runs forever, and all three are safe to run more than once.
 
 | Path | Fires when | Runs on | Typical latency |
 |------|------------|---------|-----------------|
