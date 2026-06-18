@@ -1,0 +1,10 @@
+extends: existence
+message: "Throat-clearing. Cut '%s'."
+level: warning
+ignorecase: true
+tokens:
+  - 'in order to'
+  - "it's worth noting"
+  - 'it is worth noting'
+  - '\bnote that\b'
+  - 'needless to say'

@@ -1,0 +1,12 @@
+extends: existence
+message: "'%s' asserts instead of showing. Cut it or give the concrete evidence."
+level: error
+ignorecase: true
+tokens:
+  - robust
+  - scalable
+  - seamless
+  - comprehensive
+  - cutting-edge
+  - best-in-class
+  - leverage

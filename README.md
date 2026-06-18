@@ -1,12 +1,18 @@
 # OpsCoach
 
-A hands-on platform for learning Linux and AWS operations. Instead of quizzes, you get a real, throwaway cloud server and a task list, and a grader checks the actual state of the machine as you work.
+**Status: v1.0**
 
-This is a portfolio project. The parts worth a look: a live browser-to-SSH terminal, per-session disposable lab hosts on AWS, and grading that reads real system state instead of comparing answers.
+A hands-on platform for learning Linux and AWS operations. Instead of quizzes, you get a throwaway cloud server and a task list, and a grader checks the machine's actual state as you work.
+
+This is a portfolio project. What's worth a look:
+
+- a live browser-to-SSH terminal,
+- per-session disposable lab hosts on AWS, and
+- grading that reads system state instead of comparing answers.
 
 ## Start here
 
-This page is the two-minute pitch. For the system itself, **[docs/architecture.md](docs/architecture.md)** is the walkthrough: it starts at 30,000 feet (the three moving parts), drops to 10,000 feet (the diagram, components, and flows), and lands at 1,000 feet (the design decisions worth defending).
+This page is the two-minute pitch. For the system itself, **[docs/architecture.md](docs/architecture.md)** is the walkthrough. It starts at 30,000 feet (the three moving parts), drops to 10,000 feet (the diagram, components, and flows), and lands at 1,000 feet (the design decisions worth defending).
 
 From there:
 
@@ -15,22 +21,22 @@ From there:
 
 ## What it does
 
-A learner opens a lab and gets a dedicated Linux host in a minute or two. They work in a terminal, in the browser or over their own SSH, to fix broken services, harden config, triage logs, wire up systemd, and so on. A grader runs against the live machine and streams pass/fail checks to a dashboard beside the terminal. When the learner finishes or goes idle, the host is destroyed.
+A learner opens a lab and gets a dedicated Linux host in a minute or two. They work in a terminal (in the browser or over their own SSH) to fix broken services, harden config, triage logs, wire up systemd. A grader runs against the live machine and streams pass/fail checks to a dashboard beside the terminal. When the learner finishes or goes idle, the host is destroyed.
 
 Three content packs ship today: **Linux Foundations** and **AWS Foundations** drills, and the **Beaconkeeper** capstone, a 20-step systemd and operations scenario on a single box.
 
 ## How it works
 
-A request reaches a shared ALB, authenticates through Cognito, and lands on the OpsCoach web app on ECS Fargate. Starting a lab launches a dedicated EC2 host; the web app bridges the browser terminal to it over SSH and runs the grader over SSH. Every host self-destructs on an idle or lifetime timer. The [architecture doc](docs/architecture.md) has the diagram and the full provision, terminal, grade, and teardown flows.
+A request reaches a shared ALB, authenticates through Cognito, and lands on the OpsCoach web app on ECS Fargate. Starting a lab launches a dedicated EC2 host. The web app bridges the browser terminal to that host over SSH, and runs the grader over SSH. Every host self-destructs on an idle or lifetime timer. The [architecture doc](docs/architecture.md) has the diagram and the full provision, terminal, grade, and teardown flows.
 
 ## Why it is built this way
 
 The decisions that shaped it:
 
-- **Real hosts, not a fake shell.** Learning operations means touching real systemd, real packages, real logs. Each session is an actual EC2 instance, not an emulation.
-- **Disposable and single-tenant.** Labs run as a privileged user, so every session gets its own host that is wiped on a timer. The security model leans on the cheap, isolated host instead of on container isolation. See [security.md](docs/security.md).
-- **Grade real state, not answers.** The grader SSHes in and inspects the machine, so a check passes only when the box is actually in the right state.
-- **Borrow the platform, do not rebuild it.** The infrastructure plugs into an existing shared ALB, Cognito, and VPC by ID instead of standing up its own. The real resource IDs live in local config kept out of the repo.
+- **A live host, not a fake shell.** Learning operations means touching actual systemd, packages, and logs. Each session is an EC2 instance, not an emulation.
+- **Disposable and single-tenant.** Labs run as a privileged user, so every session gets its own host, wiped on a timer. The security model leans on the cheap, isolated host instead of on container isolation. See [security.md](docs/security.md).
+- **Grade state, not answers.** The grader SSHes in and inspects the machine. A check passes only when the box is in the right state.
+- **Borrow the platform, do not rebuild it.** The infrastructure plugs into an existing shared ALB, Cognito, and VPC by ID instead of standing up its own. The resource IDs live in local config, kept out of the repo.
 
 ## Repository layout
 
@@ -55,7 +61,7 @@ With no AWS credentials and no `DATABASE_URL`, the app runs in mock mode: an in-
 
 ## Configure and deploy
 
-Two things stay out of version control: the app's `web/.env` (copied from `web/.env.example`) and the CDK platform context (`infra/cdk.context.json`, copied from the example or generated by `scripts/discover-platform-context.sh`). With those in place, `scripts/deploy-platform.sh` builds the images and deploys the stacks. The walkthrough is in [`infra/PLATFORM_INTEGRATION.md`](infra/PLATFORM_INTEGRATION.md).
+Two things stay out of version control: the app's `web/.env` and the CDK platform context (`infra/cdk.context.json`). Copy each from its example, or generate the context with `scripts/discover-platform-context.sh`. With those in place, `scripts/deploy-platform.sh` builds the images and deploys the stacks. The walkthrough is in [`infra/PLATFORM_INTEGRATION.md`](infra/PLATFORM_INTEGRATION.md).
 
 ## License
 

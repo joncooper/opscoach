@@ -1,0 +1,41 @@
+name: docs-lint
+
+on:
+  push:
+    paths:
+      - '**/*.md'
+      - '.vale.ini'
+      - 'styles/**'
+      - '.markdownlint.json'
+      - '.github/workflows/docs-lint.yml'
+  pull_request:
+    paths:
+      - '**/*.md'
+      - '.vale.ini'
+      - 'styles/**'
+      - '.markdownlint.json'
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: markdownlint (structure)
+        uses: DavidAnson/markdownlint-cli2-action@v16
+        with:
+          globs: |
+            README.md
+            docs/**/*.md
+
+      - name: Vale (house prose rules)
+        uses: errata-ai/vale-action@reviewdog
+        with:
+          files: README.md docs
+          fail_on_error: true
+          reporter: github-check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

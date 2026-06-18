@@ -1,0 +1,7 @@
+extends: existence
+message: "Hedge: '%s'. Give the number or cut it."
+level: warning
+ignorecase: true
+tokens:
+  - 'a handful of'
+  - 'a number of'

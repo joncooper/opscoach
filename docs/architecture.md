@@ -1,6 +1,8 @@
 # OpsCoach architecture
 
-OpsCoach gives each learner a real, throwaway Linux host and grades what they actually do to it. This doc starts at 30,000 feet and drops to the decisions worth defending; skim the top, and stop where you care.
+**Status: v1.0**
+
+OpsCoach gives each learner a throwaway Linux host and grades what they do to it. This doc starts at 30,000 feet and drops to the decisions worth defending. Skim the top; stop where you care.
 
 **Scope:** single-region training infrastructure for one app that borrows a shared ALB/Cognito platform. Not a hostile multi-tenant sandbox, and not a high-availability production service.
 
@@ -146,22 +148,22 @@ sequenceDiagram
 
 ## 1,000 ft · the decisions that shaped it
 
-Each of these was a fork where the obvious choice was the wrong one. Constraint, decision, trade-off.
+Each was a fork where the obvious choice was wrong.
 
-**A real host per session, not a shared sandbox.**
-Constraint: teaching operations means real systemd, real root, real packages, but you cannot hand untrusted users root on shared infrastructure. The cheaper alternatives, a shared multi-tenant host or browser-only containers, make container isolation the only wall between a hostile learner and everyone else, so one escape compromises every session. Decision: every session gets its own ephemeral EC2 host, and the security model treats that host (not the container on it) as the real boundary, killed on a timer. Trade-off: a minute or two of provisioning latency and per-session cost, bought back as realism and a blast radius of exactly one throwaway box. Full model in [security.md](security.md).
+**A host per session, not a shared sandbox.**
+Teaching operations means actual systemd, root, and packages. But you cannot hand untrusted users root on shared infrastructure. The cheap alternatives, a shared multi-tenant host or browser-only containers, make container isolation the only wall between a hostile learner and everyone else. One escape would compromise every session. So each session gets its own ephemeral EC2 host. The security model treats that host, not the container on it, as the boundary, and kills it on a timer. That costs a minute or two of provisioning and some per-session spend. In exchange, the blast radius is exactly one throwaway box. Full model in [security.md](security.md).
 
 **A custom Node server for the browser terminal.**
-Constraint: a browser terminal needs a long-lived, two-way connection to a shell, and Next.js on its own does not hold one. Decision: wrap Next in a thin `server.js` that upgrades the WebSocket, authenticates the session through an internal call, and bridges to the host with an `ssh2` PTY. Trade-off: a custom server instead of stock Next, plus a 25-second keepalive so the ALB does not cut an idle terminal, in exchange for a real shell in the browser with nothing to install.
+A browser terminal needs a long-lived, two-way connection to a shell, and Next.js does not hold one. So a thin `server.js` wraps Next. It upgrades the WebSocket, authenticates the session through an internal call, and bridges to the host with an `ssh2` PTY. The price is a custom server instead of stock Next, plus a 25-second keepalive so the ALB does not cut an idle terminal. In exchange, there is no client or agent to install: the terminal works from any browser, including behind a corporate firewall.
 
-**Grade real state, not answers.**
-Constraint: multiple-choice cannot tell you whether someone can actually run a box. Decision: the grader SSHes into the live host with a least-privilege environment and checks real state (services up, files in place, config correct), returning structured results. Trade-off: graders are per-pack code that has to run against a live machine, in exchange for a pass that means the box is genuinely in the right state.
+**Grade state, not answers.**
+Multiple-choice cannot tell you whether someone can run a box. So the grader SSHes into the live host with a least-privilege environment and checks the state directly (services up, files in place, config correct), then returns structured results. Graders are per-pack code that runs against a live machine. In exchange, a pass is not fakeable: the only way to earn it is to leave a genuinely working machine behind.
 
 **Three independent teardown paths.**
-Constraint: a leaked instance costs real money, and the control plane never sees the learner's SSH activity. Decision: an on-host SSH-idle watcher, a one-shot EventBridge Scheduler set at provision time, and a 5-minute sweep over expiry tags. Any one is enough, and all are idempotent. Trade-off: more moving parts, for a hard guarantee that nothing runs forever. Full design in [lab-lifecycle-design.md](lab-lifecycle-design.md).
+A leaked instance costs money, and the control plane never sees the learner's SSH activity. So teardown has three independent layers: an on-host SSH-idle watcher, a one-shot EventBridge Scheduler set at provision time, and a 5-minute sweep over expiry tags. Any one is enough, and all are idempotent. More moving parts, for a hard guarantee that nothing runs forever. Full design in [lab-lifecycle-design.md](lab-lifecycle-design.md).
 
 **Borrow the platform; import by ID.**
-Constraint: a demo should not stand up its own ALB, Cognito, and VPC. Decision: the CDK imports a shared platform's resources by ID from local context, and the real IDs stay out of the repo. Trade-off: the app cannot bootstrap its own world from nothing, in exchange for dropping cleanly into a real shared environment.
+A demo should not stand up its own ALB, Cognito, and VPC. So the CDK imports a shared platform's resources by ID from local context, and the IDs stay out of the repo. The cost: you cannot stand the system up in a fresh AWS account until the shared platform already exists.
 
 ## See also
 

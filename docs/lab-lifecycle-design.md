@@ -1,6 +1,6 @@
 # Lab instance lifecycle design
 
-Status: implemented (web + CDK)
+**Status: v1.0 · implemented (web + CDK)**
 
 This document records how Ops Coach provisions per-session EC2 lab hosts in the web deployment, how those instances are torn down, and why we chose a layered approach instead of relying on a single cleanup mechanism.
 
@@ -53,13 +53,11 @@ sequenceDiagram
 
 We use **three independent teardown paths**. Any one path succeeding is sufficient; all paths are safe to run more than once.
 
-| Layer | Trigger | Actor | Typical latency |
-|-------|---------|-------|-----------------|
-| 1. SSH idle watcher | No established TCP sessions on host `:22` for grace period after at least one session was seen | EC2 user-data background script | ~2 min after disconnect |
-| 2. Max TTL schedule | One-time EventBridge Scheduler at provision time | `OpsCoachSessionTerminator` Lambda | Exactly at T + max lifetime |
-| 3. ExpiresAt sweep | `ExpiresAt` EC2 tag in the past | Same Lambda, every 5 min | Up to 5 min after tag expiry |
-
-Manual **Stop lab** (learner button) and authenticated `POST /api/sessions/:id/stop` use the same internal shutdown path as the webhooks.
+| Layer | Actor | Typical latency |
+|-------|-------|-----------------|
+| 1. SSH idle watcher | EC2 user-data background script | ~2 min after disconnect |
+| 2. Max TTL schedule | `OpsCoachSessionTerminator` Lambda | Exactly at T + max lifetime |
+| 3. ExpiresAt sweep | Same Lambda, every 5 min | Up to 5 min after tag expiry |
 
 ### Why not only SSH idle?
 
@@ -75,8 +73,10 @@ Timers alone are either too aggressive (kill active sessions) or too loose (leak
 
 ### Why both Scheduler and ExpiresAt sweep?
 
-- **EventBridge Scheduler** fires once per session at a precise time and deletes itself after completion. This is the primary hard cap.
-- **`ExpiresAt` tag + sweep** catches instances where schedule creation failed (missing IAM, API error during provision) or AWS Scheduler drift. The sweep reuses the same terminator Lambda.
+The Scheduler is the primary hard cap; the sweep is its fallback, on the same horizon.
+
+- **EventBridge Scheduler** fires once per session at a precise time and deletes itself after completion.
+- **`ExpiresAt` tag + sweep** uses the same max-lifetime horizon as the schedule, so it is not a third latency that routinely races the others. It is the fallback for when schedule creation failed (missing IAM, API error during provision) or AWS Scheduler drift left an instance running past its time. The sweep reuses the same terminator Lambda.
 
 ## Layer 1: SSH idle watcher
 
@@ -126,9 +126,9 @@ Content-Type: application/json
 4. `ActionAfterCompletion: DELETE` removes the schedule after it fires.
 5. Any explicit shutdown (`manual`, `ssh_idle`) calls `DeleteSchedule` for idempotency.
 
-**Default max lifetime:** **60 minutes** (`OPSCOACH_MAX_LIFETIME_MINUTES` / CDK context `maxLifetimeMinutes`).
+**Default max lifetime:** set by `OPSCOACH_MAX_LIFETIME_MINUTES` / CDK context `maxLifetimeMinutes` (see the Configuration tables).
 
-**Rationale for 60 minutes:**
+**Rationale for that default:**
 
 - Long enough for a typical lab session and assessment retries.
 - Short enough to bound cost if all other teardown paths fail.
@@ -148,7 +148,7 @@ Scheduler supports **one-time** schedules natively with per-session names and au
 2. Lambda scans running Ops Coach instances (`OpsCoach=true`).
 3. If `ExpiresAt <= now`, terminate and call shutdown API with `reason=expires_at_sweep`.
 
-**Rationale:** Cheap safety net if schedule creation failed or an instance outlived its schedule due to API errors.
+**Rationale:** the fallback described under "Why both Scheduler and ExpiresAt sweep?" above.
 
 ## Unified shutdown path
 
@@ -187,7 +187,7 @@ The terminator Lambda terminates EC2 first, then calls the shutdown API so Postg
 |-----|---------|---------|
 | `maxLifetimeMinutes` | `60` | Hard cap |
 | `sshIdleGraceSeconds` | `120` | Passed to user-data |
-| `idleTimeoutMinutes` | `10` | Legacy name; **not** used for `ExpiresAt` anymore |
+| `idleTimeoutMinutes` | `10` | Vestigial: not read by teardown; kept only to avoid a churny rename |
 
 ### Mock / local dev
 
@@ -230,8 +230,8 @@ Deploy wiring: [`infra/bin/opscoach-platform.ts`](../infra/bin/opscoach-platform
 
 ## Related files
 
-- [`web/lib/ec2-labs.ts`](../web/lib/ec2-labs.ts) — provision, tag, schedule
-- [`web/lib/session-scheduler.ts`](../web/lib/session-scheduler.ts) — EventBridge Scheduler client
-- [`web/app/api/sessions/[id]/shutdown/route.ts`](../web/app/api/sessions/[id]/shutdown/route.ts) — internal shutdown API
-- [`infra/lib/lab-host-stack.ts`](../infra/lib/lab-host-stack.ts) — terminator Lambda + scheduler role
-- [`infra/lib/opscoach-service-stack.ts`](../infra/lib/opscoach-service-stack.ts) — Fargate env + scheduler IAM
+- [`web/lib/ec2-labs.ts`](../web/lib/ec2-labs.ts): provision, tag, schedule
+- [`web/lib/session-scheduler.ts`](../web/lib/session-scheduler.ts): EventBridge Scheduler client
+- [`web/app/api/sessions/[id]/shutdown/route.ts`](../web/app/api/sessions/[id]/shutdown/route.ts): internal shutdown API
+- [`infra/lib/lab-host-stack.ts`](../infra/lib/lab-host-stack.ts): terminator Lambda + scheduler role
+- [`infra/lib/opscoach-service-stack.ts`](../infra/lib/opscoach-service-stack.ts): Fargate env + scheduler IAM

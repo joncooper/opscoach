@@ -1,6 +1,8 @@
 # Local development without AWS
 
-This document captures the feasibility discussion for running Ops Coach web **entirely on a developer machine** — no EC2, Fargate, RDS, or AWS API calls — while building features that deploy to Platform in production.
+**Status: v1.0**
+
+Ops Coach web can run **entirely on a developer machine** (no EC2, Fargate, RDS, or AWS API calls) while building features that deploy to Platform in production. This document is the feasibility discussion for getting there.
 
 ## Goal
 
@@ -10,7 +12,7 @@ Match the macOS app’s day-to-day loop: open the app, start a lab, SSH from you
 
 | Piece | Behavior |
 |-------|----------|
-| Web UI | `cd web && npm run dev` — catalog, play flow, session page, SSE grading |
+| Web UI | `cd web && npm run dev`: catalog, play flow, session page, SSE grading |
 | Session store | In-memory when `DATABASE_URL` is unset; optional local Postgres |
 | Provisioning | **Mock EC2** when `EC2_LAUNCH_TEMPLATE_ID` is unset → session is immediately `ready` at `127.0.0.1:22` |
 | Graders | Same ContentPack shell scripts as the native app (SSH from the API process) |
@@ -48,14 +50,14 @@ Behavior when `OPSCOACH_LOCAL_DEV=1`:
 4. `stop` runs `docker compose down` for that session project.
 5. Skips AWS lab prep, EventBridge Scheduler, and EC2 terminate paths.
 
-Optional: `scripts/dev.sh` — check Docker, export env, start Next.js.
+Optional: `scripts/dev.sh` to check Docker, export env, start Next.js.
 
-## Effort estimate (deferred)
+## Effort estimate
 
 | Scope | Effort | Outcome |
 |-------|--------|---------|
-| MVP — `linux-foundations` auto-docker | ~1–2 days | Full UI + grader loop without AWS |
-| All SSH packs + beaconkeeper | ~3–5 days | Parity with native non-AWS labs |
+| MVP: `linux-foundations` auto-docker | ~1 to 2 days | Full UI + grader loop without AWS |
+| All SSH packs + beaconkeeper | ~3 to 5 days | Parity with native non-AWS labs |
 | AWS lab local | Extra | Mock/fixture credentials or explicit “requires platform” error |
 
 ## Architecture note
@@ -70,4 +72,4 @@ Keep a single orchestration interface (`provisionLabInstance` / `terminateLabIns
 
 ## Status
 
-**Deferred** — ship Platform deploy first; implement `OPSCOACH_LOCAL_DEV` / `LocalLabProvisioner` when local iteration becomes a bottleneck.
+**Deferred**: ship Platform deploy first; implement `OPSCOACH_LOCAL_DEV` / `LocalLabProvisioner` when local iteration becomes a bottleneck.
