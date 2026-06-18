@@ -69,7 +69,7 @@ export function DashboardPreview({
         </div>
       </div>
       <p className="help" style={{ marginTop: "0.5rem" }}>
-        What the public sees at the Beacon&apos;s URL — pulled live from the host and self-healing
+        What the public sees at the Beacon&apos;s URL, pulled live from the host and self-healing
         as you light lanterns.
       </p>
     </div>

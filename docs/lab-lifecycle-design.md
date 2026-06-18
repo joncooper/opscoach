@@ -14,11 +14,11 @@ The learner can also opt into SSH straight from their laptop to the host's publi
 
 So teardown has to be:
 
-- **Prompt** once the learner is actually gone (no live SSH on the box).
+- **Prompt** once the learner is gone (no live SSH on the box).
 - **Reliable** when a callback is dropped, a schedule misfires, or the learner never connects at all.
 - **Idempotent**, because more than one path can fire on the same host within seconds.
 
-**Non-goals.** This is not a cost-optimization or autoscaling design: there is no bin-packing, no spot fallback, no warm pool. It does not extend a session on activity (a started host dies at its cap regardless of use; see Future improvements). And it is not the security model. It is the mechanism that guarantees the security model's one-hour blast radius actually expires.
+**Non-goals.** This is not a cost-optimization or autoscaling design: there is no bin-packing, no spot fallback, no warm pool. It does not extend a session on activity (a started host dies at its cap regardless of use; see Future improvements). And it is not the security model. It is the mechanism that guarantees the security model's one-hour blast radius expires.
 
 ## Defense in depth: three teardown paths
 
@@ -38,11 +38,11 @@ Because it runs on the host, and the host can misreport or go silent. The watche
 
 ### Why not a timer alone?
 
-A timer with no idle signal is either too aggressive or too loose. Tune it short and it kills learners mid-lab; tune it long and idle hosts bill for the slack. The earlier design made exactly this mistake: it set `ExpiresAt = now + 10 min` at provision and called it idle teardown, which just terminated active sessions ten minutes in. A fixed cap is the right tool for *bounding* cost, not for detecting idle. It belongs as the backstop, with an actual idle signal in front of it.
+A timer with no idle signal is either too aggressive or too loose. Tune it short and it kills learners mid-lab; tune it long and idle hosts bill for the slack. The earlier design made exactly this mistake: it set `ExpiresAt = now + 10 min` at provision and called it idle teardown, which just terminated active sessions ten minutes in. A fixed cap is the right tool for *bounding* cost, not for detecting idle. It belongs as the backstop, with an idle signal in front of it.
 
 ### Why both a schedule and a sweep?
 
-They cover different failures. The schedule is precise but can fail to exist: if `CreateSchedule` fails at provision (missing IAM, a transient API error), there is no timer for that host, and a host with no timer is exactly the host that leaks. The sweep needs nothing but a tag that `RunInstances` already wrote, so it catches hosts the schedule missed, plus any that outlived their schedule through API errors. One path is precise but can fail to exist, the other is blunt but certain, and a single Lambda runs both.
+They cover different failures. The schedule is precise but can fail to exist: if `CreateSchedule` fails at provision (missing IAM, a transient API error), there is no timer for that host, and a host with no timer is exactly the host that leaks. The sweep needs nothing but a tag that `RunInstances` already wrote, so it catches hosts the schedule missed, plus any that outlived their schedule through API errors. A single Lambda runs both.
 
 ## Path 1: SSH idle watcher
 

@@ -488,14 +488,66 @@ WantedBy=timers.target
     enable_unit(str(inst["squatter_service"]))
 
 
+_BEACON_OUTAGE_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beacon - Service Unavailable</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: #c9d4e3;
+    background: radial-gradient(130% 115% at 50% 0%, #16243d 0%, #0b1320 52%, #05080f 100%);
+  }
+  .wrap { text-align: center; padding: 1.5rem; max-width: 560px; }
+  .art { width: 300px; max-width: 78vw; height: auto; display: block; margin: 0 auto .25rem;
+         -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+         mask-image: linear-gradient(to bottom, #000 72%, transparent 100%); }
+  .code { font-size: 4rem; font-weight: 700; letter-spacing: .18em; color: #f0b65a;
+          text-shadow: 0 0 30px rgba(240,182,90,.22); line-height: 1; }
+  h1 { font-size: 1.45rem; margin: .3rem 0 1rem; color: #eef3fa; font-weight: 600; }
+  p { line-height: 1.65; color: #93a6c0; font-size: 1rem; }
+  .aside { margin-top: 1rem; font-size: .9rem; color: #6c7f9c; }
+  .status { margin-top: 1.7rem; font-size: .8rem; color: #6f86a6;
+            border-top: 1px solid #1b2a42; padding-top: 1rem; }
+  .status b { color: #e07a5f; font-weight: 600; }
+  @media (max-height: 460px) {
+    body { align-items: flex-start; }
+    .wrap { padding: .6rem 1rem; }
+    .art { width: 140px; margin-bottom: .1rem; }
+    .code { font-size: 2.4rem; }
+    h1 { font-size: 1.05rem; margin: .15rem 0 .5rem; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <img class="art" alt="A lighthouse at night with its lamp dark" src="data:image/jpeg;base64,__IMG__">
+    <div class="code">503</div>
+    <h1>The beacon is dark</h1>
+    <p>Service unavailable. The harbor light went out after a sloppy maintenance shift, and no one has relit the lanterns.</p>
+    <p class="aside">Yes, the page loads. The beacon does not. That part is your job tonight, keeper.</p>
+    <div class="status">beacon-api &nbsp;&middot;&nbsp; <b>0 of 20 lanterns lit</b> &nbsp;&middot;&nbsp; waiting for the night keeper</div>
+  </div>
+</body>
+</html>
+"""
+
+
 def create_nginx(inst: dict[str, object]) -> None:
-    write(Path("/var/www/html/index.html"), "<html><body><h1>False Beacon</h1><p>Beacon OK</p></body></html>\n")
+    img_b64 = base64.b64encode((ROOT / "beacon-down.jpg").read_bytes()).decode("ascii")
+    write(Path("/var/www/html/index.html"), _BEACON_OUTAGE_HTML.replace("__IMG__", img_b64))
     config = f"""server {{
     listen 80 default_server;
     listen [::]:80 default_server;
     server_name _;
 
-    # This stale page is a false positive from an old local test.
+    # Root serves a static maintenance page; the real dashboard is the Beacon API.
     location / {{
         root /var/www/html;
         index index.html;

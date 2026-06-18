@@ -672,8 +672,8 @@ def check_false_beacon_removed(inst: dict[str, object]) -> tuple[bool, str]:
     )
     if status != 200:
         return False, f"Root page failed: HTTP {status}."
-    if "False Beacon" in body or "Beacon OK" in body:
-        return False, "Root page is still the stale false beacon."
+    if "beacon is dark" in body.lower() or "False Beacon" in body or "Beacon OK" in body:
+        return False, "Root page still serves the maintenance placeholder, not the dashboard."
     if "Beacon Dashboard" not in body:
         return False, "Root page is not the real Beacon dashboard."
     return True, "Root route serves the real dashboard."
