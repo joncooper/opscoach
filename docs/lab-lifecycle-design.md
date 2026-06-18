@@ -1,96 +1,57 @@
-# Lab instance lifecycle design
+# Lab host lifecycle and teardown
 
-Status: implemented (web + CDK)
+Status: implemented (web app + CDK).
 
-This document records how Ops Coach provisions per-session EC2 lab hosts in the web deployment, how those instances are torn down, and why we chose a layered approach instead of relying on a single cleanup mechanism.
+Every learner session gets its own EC2 lab host, and the load-bearing problem is killing it again. This doc explains how OpsCoach provisions and tears down per-session hosts, and why teardown runs as three independent paths instead of one. For the wider security argument that teardown protects, see [security.md](security.md); for where this sits in the system, see [architecture.md](architecture.md).
 
 ## Problem
 
-Each learner session can spawn a dedicated EC2 instance (t4g.micro) running Docker with the lab container. If teardown fails or never runs, instances leak and accumulate cost.
+A session can launch a dedicated `t4g.micro` host (Amazon Linux 2023, arm64) running the lab container under Docker. If teardown fails or never runs, hosts leak and bill by the hour. Teardown is therefore the control that has to work.
 
-Unlike the native macOS app, the web product does **not** embed a terminal. Learners SSH from their own client directly to the lab host's public IP. The control plane (Next.js on Fargate) never sees SSH connect/disconnect events, so it cannot infer idle state from browser activity alone.
+The trap is assuming the control plane knows when a learner is done. It does not. The web app embeds a browser terminal: xterm.js streams over a WebSocket to a custom Node server (`web/server.js`), which bridges to the host with an `ssh2` PTY on port 22. That bridge holds a connection open with a 25-second keepalive so the load balancer does not cut an idle terminal, so its liveness tracks the socket, not the human.
 
-We need teardown that is:
+The learner can also opt into SSH straight from their laptop to the host's public IP, and those sessions never touch the control plane at all. Either way, the Next.js control plane on Fargate cannot reliably infer idle from a browser tab, and it is blind to direct SSH. Whatever decides "this host is idle" has to live on the host.
 
-- **Prompt** when the learner is done (SSH idle).
-- **Reliable** when callbacks fail, schedules are missed, or the learner never connects.
-- **Idempotent** when multiple paths fire close together.
+So teardown has to be:
 
-## Architecture context
+- **Prompt** once the learner is actually gone (no live SSH on the box).
+- **Reliable** when a callback is dropped, a schedule misfires, or the learner never connects at all.
+- **Idempotent**, because more than one path can fire on the same host within seconds.
 
-```mermaid
-sequenceDiagram
-  participant Learner
-  participant Web as OpsCoachWeb_Fargate
-  participant EC2 as LabHost_EC2
-  participant Lambda as SessionTerminator
-  participant Scheduler as EventBridgeScheduler
+**Non-goals.** This is not a cost-optimization or autoscaling design: there is no bin-packing, no spot fallback, no warm pool. It does not extend a session on activity (a started host dies at its cap regardless of use; see Future improvements). And it is not the security model. It is the mechanism that guarantees the security model's one-hour blast radius actually expires.
 
-  Learner->>Web: POST /api/sessions (pubkey)
-  Web->>EC2: RunInstances + user-data
-  Web->>Scheduler: CreateSchedule T+maxLifetime
-  EC2->>Web: POST /ready (public + private IP)
-  Learner->>EC2: SSH :22
-  Note over EC2: idle watcher monitors :22
-  Learner--xEC2: SSH disconnect
-  EC2->>Web: POST /shutdown reason=ssh_idle
-  Web->>EC2: TerminateInstances
-  Web->>Scheduler: DeleteSchedule
+## Defense in depth: three teardown paths
 
-  Note over Scheduler,Lambda: If still running at T+maxLifetime
-  Scheduler->>Lambda: invoke terminate
-  Lambda->>EC2: TerminateInstances
-  Lambda->>Web: POST /shutdown reason=max_ttl
-```
+Teardown runs as three independent paths. Any one of them succeeding is enough, and every one is safe to run more than once. The point is that no single mechanism is trusted: the host can wedge, a callback can drop, schedule creation can fail at provision time. Layering trades extra moving parts for a hard guarantee that nothing runs forever.
 
-**Key constraints:**
+| Path | Fires when | Runs on | Typical latency |
+|------|------------|---------|-----------------|
+| 1. SSH idle watcher | No established TCP on host `:22` for the grace period, after at least one session was seen | Background script in host user-data | ~2 min after the last disconnect |
+| 2. Max-TTL schedule | A one-shot EventBridge Scheduler entry created at provision | Terminator Lambda | At T + max lifetime, exactly |
+| 3. ExpiresAt sweep | An `ExpiresAt` instance tag is in the past | Same Lambda, every 5 min | Up to 5 min after the tag expires |
 
-- SSH is pubkey-only on a hardened host (v1: public IP; no Tailscale).
-- Grader runs from Fargate inside the VPC and SSHs to the instance **private IP**.
-- Session state lives in Postgres; EC2 lifecycle is driven by the web task role and terminator Lambda.
+The three "Why not X alone?" sections below justify the layering, one path at a time. First, the learner's **Stop lab** button and the authenticated `POST /api/sessions/:id/stop` are not a fourth path: they call the same internal shutdown routine the automated paths converge on (see Unified shutdown).
 
-## Design principle: defense in depth
+### Why not the idle watcher alone?
 
-We use **three independent teardown paths**. Any one path succeeding is sufficient; all paths are safe to run more than once.
+Because it runs on the host, and the host can misreport or go silent. The watcher fails to fire in exactly the cases that cost the most: the learner provisions a host and never connects (so the watcher never sees a session to start its idle clock), a bug stalls the loop, or the host wedges badly enough that nothing on it runs. The watcher is the prompt path, not the guaranteed one, so it needs a backstop that runs off-host.
 
-| Layer | Trigger | Actor | Typical latency |
-|-------|---------|-------|-----------------|
-| 1. SSH idle watcher | No established TCP sessions on host `:22` for grace period after at least one session was seen | EC2 user-data background script | ~2 min after disconnect |
-| 2. Max TTL schedule | One-time EventBridge Scheduler at provision time | `OpsCoachSessionTerminator` Lambda | Exactly at T + max lifetime |
-| 3. ExpiresAt sweep | `ExpiresAt` EC2 tag in the past | Same Lambda, every 5 min | Up to 5 min after tag expiry |
+### Why not a timer alone?
 
-Manual **Stop lab** (learner button) and authenticated `POST /api/sessions/:id/stop` use the same internal shutdown path as the webhooks.
+A timer with no idle signal is either too aggressive or too loose. Tune it short and it kills learners mid-lab; tune it long and idle hosts bill for the slack. The earlier design made exactly this mistake: it set `ExpiresAt = now + 10 min` at provision and called it idle teardown, which just terminated active sessions ten minutes in. A fixed cap is the right tool for *bounding* cost, not for detecting idle. It belongs as the backstop, with a real idle signal in front of it.
 
-### Why not only SSH idle?
+### Why both a schedule and a sweep?
 
-The control plane does not terminate SSH. Without a host-side agent, we would only discover idle state when the learner clicks Stop or when a coarse timer fires. SSH idle detection closes the gap for the common case: learner closes their terminal and walks away.
+They cover different failures. The schedule is precise but can fail to exist: if `CreateSchedule` fails at provision (missing IAM, a transient API error), there is no timer for that host, and a host with no timer is exactly the host that leaks. The sweep needs nothing but a tag that `RunInstances` already wrote, so it catches hosts the schedule missed, plus any that outlived their schedule through API errors. One path is precise but can fail to exist, the other is blunt but certain, and a single Lambda runs both.
 
-### Why not only a timer?
+## Path 1: SSH idle watcher
 
-Timers alone are either too aggressive (kill active sessions) or too loose (leak nodes). A fixed max lifetime is necessary as a **backstop** for:
+Generated as shell user-data in `web/lib/lab-user-data.ts` (mirrored in `infra/lib/lab-user-data.sh` for launch-template defaults). A background loop runs on the host:
 
-- Failed shutdown webhooks (network, secret mismatch, API down).
-- Learners who never SSH (instance still costs money).
-- Bugs in the idle watcher.
-
-### Why both Scheduler and ExpiresAt sweep?
-
-- **EventBridge Scheduler** fires once per session at a precise time and deletes itself after completion. This is the primary hard cap.
-- **`ExpiresAt` tag + sweep** catches instances where schedule creation failed (missing IAM, API error during provision) or AWS Scheduler drift. The sweep reuses the same terminator Lambda.
-
-## Layer 1: SSH idle watcher
-
-**Location:** Generated shell user-data in [`web/lib/lab-user-data.ts`](../web/lib/lab-user-data.ts) (also mirrored in [`infra/lib/lab-user-data.sh`](../infra/lib/lab-user-data.sh) for launch-template defaults).
-
-**Behavior:**
-
-1. After bootstrap, a background subshell loops every 15 seconds.
-2. Count established connections on local port 22 via `ss -tn state established '( sport = :22 )'`.
-3. Track `had_session`: set to 1 once count &gt; 0 at least once.
-4. When `had_session` is 1 and count is 0, start an idle clock.
-5. If idle for `SSH_IDLE_GRACE_SECONDS` (default **120**), POST shutdown webhook.
-
-**Webhook:**
+1. Every 15 seconds, count established connections on local port 22 with `ss -tn state established '( sport = :22 )'`.
+2. Once that count goes above zero, latch a `had_session` flag. The watcher will not act until it has seen at least one real session.
+3. When `had_session` is set and the count falls back to zero, start an idle clock.
+4. After `SSH_IDLE_GRACE_SECONDS` (default **120**) of continuous idle, POST the shutdown webhook:
 
 ```http
 POST /api/sessions/:id/shutdown
@@ -100,138 +61,104 @@ Content-Type: application/json
 { "reason": "ssh_idle" }
 ```
 
-**Rationale for 120s grace:**
+The 120-second grace debounces two things: a brief network blip or `ssh` reconnect that should not end the session, and the grader's SSH from Fargate (the platform grades a lab by logging in to check real state) that should be allowed to finish without racing a learner disconnect.
 
-- Avoid tearing down during brief disconnects (network blip, `ssh` reconnect).
-- Allow grader SSH from Fargate to complete without racing the learner disconnect in edge cases.
+The watcher only *asks* for teardown. It cannot terminate anything: the lab instance role grants log writes and ECR image pulls and nothing else (no `ec2:TerminateInstances`), so a compromised host cannot turn the watcher into a weapon against other instances. Termination always runs off-host, gated by the callback secret.
 
-**Known limitation:** The watcher counts **all** connections on host `:22`, including grader SSH from the VPC. A learner who never opens a terminal but repeatedly runs checks from the web UI may still see the instance terminated shortly after grading quiesces. Acceptable for v1; a follow-up could filter by source IP (e.g. only non-RFC1918) if needed.
+Two limits are deliberate for v1:
 
-**Known limitation:** If the learner never SSHs, `had_session` stays 0 and the idle watcher never fires. Max TTL (layer 2) handles that case.
+- **The watcher counts every connection on `:22`, including grader SSH from inside the VPC.** A learner who never opens a terminal but runs checks repeatedly from the web UI can see their host torn down soon after grading goes quiet. Acceptable now; the fix is source-aware counting (below).
+- **If the learner never SSHes, `had_session` stays unset and the watcher never fires.** That host is precisely what the max-TTL path exists to catch.
 
-## Layer 2: One-time EventBridge schedule (max TTL)
+## Path 2: Max-TTL schedule
 
-**Location:** [`web/lib/session-scheduler.ts`](../web/lib/session-scheduler.ts), invoked from [`web/lib/ec2-labs.ts`](../web/lib/ec2-labs.ts) after `RunInstances`.
+`web/lib/session-scheduler.ts`, called from `web/lib/ec2-labs.ts` right after `RunInstances`. On a successful provision, Fargate creates a one-shot EventBridge Scheduler entry named `opscoach-{sessionId}` (truncated to 64 characters):
 
-**Behavior:**
+- Expression `at(<UTC timestamp>)`, set to **T + maxLifetimeMinutes** from provision.
+- Target: the terminator Lambda, with `{ "action": "terminate", "instanceId": "...", "sessionId": "...", "reason": "max_ttl" }`.
+- `ActionAfterCompletion: DELETE`, so the entry cleans itself up after it fires.
+- Any earlier shutdown (`manual`, `ssh_idle`) calls `DeleteSchedule`, so a host that dies early does not leave a dangling timer.
 
-1. On successful provision, Fargate creates schedule `opscoach-{sessionId}` (truncated to 64 chars).
-2. Expression: `at(yyyy-mm-ddThh:mm:ss)` in UTC, **T + maxLifetimeMinutes** from provision time.
-3. Target: `OpsCoachSessionTerminator` Lambda with payload:
+**Default max lifetime: 60 minutes** (`OPSCOACH_MAX_LIFETIME_MINUTES`, CDK context `maxLifetimeMinutes`). Sixty minutes is long enough for a full lab plus assessment retries and short enough to bound the bill if every other path fails. It is intentionally orthogonal to the idle grace: one bounds the worst case, the other handles the normal case.
 
-   ```json
-   { "action": "terminate", "instanceId": "i-…", "sessionId": "…", "reason": "max_ttl" }
-   ```
+**Why EventBridge Scheduler, not EventBridge Rules?** Scheduler does one-shot schedules natively, with per-session names and auto-delete after firing. Rules are built for recurring patterns, which is why the 5-minute sweep (path 3) uses a Rule and the per-session cap does not.
 
-4. `ActionAfterCompletion: DELETE` removes the schedule after it fires.
-5. Any explicit shutdown (`manual`, `ssh_idle`) calls `DeleteSchedule` for idempotency.
+## Path 3: ExpiresAt sweep
 
-**Default max lifetime:** **60 minutes** (`OPSCOACH_MAX_LIFETIME_MINUTES` / CDK context `maxLifetimeMinutes`).
+`infra/lib/session-terminator/handler.py`, triggered every 5 minutes by an EventBridge Rule defined in `infra/lib/lab-host-stack.ts`. At provision, `RunInstances` tags the host `ExpiresAt=<ISO8601>` on the same horizon as the schedule. On each run, the Lambda lists running OpsCoach hosts (tag `OpsCoach=true`) and, for any whose `ExpiresAt` is in the past, terminates the instance and calls the shutdown API with `reason=expires_at_sweep`.
 
-**Rationale for 60 minutes:**
+The sweep depends on nothing but a tag the launch already wrote, which is the whole point: it is the safety net for the rare host whose schedule was never created or somehow outlived itself.
 
-- Long enough for a typical lab session and assessment retries.
-- Short enough to bound cost if all other teardown paths fail.
-- Independent of SSH idle grace (orthogonal concerns).
+## Unified shutdown
 
-**Why EventBridge Scheduler (not EventBridge Rules)?**
+Every path, automated or manual, converges on `shutdownSessionInternal` in `web/lib/sessions.ts`. Keeping one routine is what makes the idempotency real: concurrent triggers collapse onto the same guarded transition instead of racing.
 
-Scheduler supports **one-time** schedules natively with per-session names and auto-delete. Rules are better suited to recurring patterns (like the 5-minute sweep).
-
-## Layer 3: ExpiresAt tag sweep
-
-**Location:** [`infra/lib/session-terminator/handler.py`](../infra/lib/session-terminator/handler.py), triggered every 5 minutes by EventBridge Rule in [`infra/lib/lab-host-stack.ts`](../infra/lib/lab-host-stack.ts).
-
-**Behavior:**
-
-1. At provision, `RunInstances` tags the instance with `ExpiresAt=<ISO8601>` aligned to **max lifetime** (same horizon as the scheduler).
-2. Lambda scans running Ops Coach instances (`OpsCoach=true`).
-3. If `ExpiresAt <= now`, terminate and call shutdown API with `reason=expires_at_sweep`.
-
-**Rationale:** Cheap safety net if schedule creation failed or an instance outlived its schedule due to API errors.
-
-## Unified shutdown path
-
-All automated and manual teardown converges on [`shutdownSessionInternal`](../web/lib/sessions.ts):
-
-1. Idempotent if already `stopped` / `stopping`.
+1. Return immediately if the session is already `stopped` or `stopping`.
 2. Set status `stopping`.
 3. `DeleteSchedule` (best effort).
-4. `TerminateInstances` if instance id present (errors logged, still mark stopped).
-5. Set status `stopped`, publish SSE event.
+4. `TerminateInstances` if an instance id is present. Errors are logged, and the session is still marked stopped, so an API hiccup never strands a session in limbo.
+5. Set status `stopped` and publish the event the dashboard streams over SSE.
 
-**Entry points:**
+There are two ways in, both reaching the same routine:
 
-| Entry | Auth | Reason |
-|-------|------|--------|
+| Entry point | Auth | Reasons |
+|-------------|------|---------|
 | `POST /api/sessions/:id/stop` | Session token | `manual` |
 | `POST /api/sessions/:id/shutdown` | `X-Internal-Secret` | `ssh_idle`, `max_ttl`, `expires_at_sweep`, `manual` |
 
-The terminator Lambda terminates EC2 first, then calls the shutdown API so Postgres stays in sync.
-
-## Configuration
-
-### Runtime (Fargate task environment)
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `OPSCOACH_MAX_LIFETIME_MINUTES` | `60` | Scheduler fire time + `ExpiresAt` tag |
-| `OPSCOACH_SSH_IDLE_GRACE_SECONDS` | `120` | Host idle debounce before shutdown webhook |
-| `SESSION_TERMINATOR_LAMBDA_ARN` | (CDK) | Schedule target |
-| `SCHEDULER_INVOKE_ROLE_ARN` | (CDK) | Scheduler execution role |
-| `INTERNAL_CALLBACK_SECRET` | Secrets Manager | Authenticates host/Lambda callbacks |
-
-### CDK context ([`infra/lib/web-config.ts`](../infra/lib/web-config.ts))
-
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `maxLifetimeMinutes` | `60` | Hard cap |
-| `sshIdleGraceSeconds` | `120` | Passed to user-data |
-| `idleTimeoutMinutes` | `10` | Legacy name; **not** used for `ExpiresAt` anymore |
-
-### Mock / local dev
-
-Without `EC2_LAUNCH_TEMPLATE_ID`, provisioning is mock-only: no scheduler, no host watcher. Sessions are in-memory unless `DATABASE_URL` is set.
-
-## Security
-
-- Shutdown and ready callbacks require `X-Internal-Secret` (stored in Secrets Manager, created in lab-host stack, read by Fargate task role).
-- EC2 terminate IAM is scoped with `OpsCoach=true` resource/request tags where possible.
-- Host watcher only initiates shutdown; it cannot terminate instances directly (no IAM on lab instance role for terminate).
-
-## CDK components
-
-| Resource | Stack | Role |
-|----------|-------|------|
-| `OpsCoachSessionTerminator` Lambda | `Dev-OpsCoachLabHost` | Direct terminate + sweep + shutdown API notify |
-| `OpsCoachSchedulerInvoke` IAM role | Lab host | Lets Scheduler invoke Lambda |
-| EventBridge Rule (5 min) | Lab host | Sweep trigger |
-| Callback secret | Lab host | Shared with Fargate |
-| Scheduler IAM on task role | `Dev-OpsCoach` / web stack | `CreateSchedule` / `DeleteSchedule` |
-
-Deploy wiring: [`infra/bin/opscoach-platform.ts`](../infra/bin/opscoach-platform.ts), [`infra/PLATFORM_INTEGRATION.md`](../infra/PLATFORM_INTEGRATION.md).
+The terminator Lambda terminates EC2 first, then calls the shutdown API, so the EC2 state of the world and the Postgres record converge rather than drift. The shutdown route rejects an unsigned call with 401.
 
 ## Alternatives considered
 
 | Approach | Rejected because |
 |----------|------------------|
-| Idle timeout from provision only (old `ExpiresAt = now + 10m`) | Kills active sessions; not true idle semantics |
-| Web-only activity timeout | No visibility into SSH; learner can be active in terminal while web tab is idle |
-| Tailscale-only SSH | Explicit product decision: v1 hardened public SSH only |
-| Lambda per session (standalone) | Scheduler + one shared terminator Lambda is simpler and cheaper |
-| EC2 instance self-terminate via IAM | Broader blast radius on compromised lab host; prefer API/Lambda with secret |
+| Provision-time timer as "idle" (`ExpiresAt = now + 10 min`) | Kills active sessions; a fixed timer is not idle detection. This is the bug the current design replaced. |
+| Web-only activity timeout | The control plane is blind to SSH. A learner working in the terminal looks idle if the browser tab is quiet, and direct SSH is invisible entirely. |
+| Tailscale-only SSH (no public IP) | A product decision for v1: hardened public SSH only. The watcher and timers are written so this can change without reworking teardown. |
+| A dedicated Lambda per session | One shared terminator Lambda plus a per-session schedule is simpler to operate and cheaper than N functions. |
+| Host self-terminates via its own IAM | Widens the blast radius of a compromised host. Termination stays off-host, behind the callback secret. |
+
+## Configuration
+
+The two knobs that change behavior are the max lifetime and the idle grace. Both are set from the Fargate task environment and plumbed from CDK context; the rest of the environment wires the actors together.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OPSCOACH_MAX_LIFETIME_MINUTES` | `60` | Schedule fire time and `ExpiresAt` horizon |
+| `OPSCOACH_SSH_IDLE_GRACE_SECONDS` | `120` | Host idle debounce before the shutdown webhook |
+| `SESSION_TERMINATOR_LAMBDA_ARN` | (from CDK) | Schedule target |
+| `SCHEDULER_INVOKE_ROLE_ARN` | (from CDK) | Scheduler execution role |
+| `INTERNAL_CALLBACK_SECRET` | (Secrets Manager) | Authenticates host and Lambda callbacks |
+
+One CDK field is a deliberate trap to avoid: `idleTimeoutMinutes` (default `10`) is a legacy name from the old timer-as-idle design and **no longer drives `ExpiresAt`**. The horizon comes from `maxLifetimeMinutes`. The name is kept only to avoid a churning rename; do not wire teardown to it.
+
+Without `EC2_LAUNCH_TEMPLATE_ID`, provisioning is mock-only: no real host, no scheduler, no watcher, and sessions live in memory unless `DATABASE_URL` is set. That is the local-development path, covered in [local-dev-without-aws.md](local-dev-without-aws.md).
+
+## CDK components
+
+| Resource | Stack | Role |
+|----------|-------|------|
+| Terminator Lambda | Lab host stack | Direct terminate, the 5-minute sweep, and the shutdown-API notify |
+| Scheduler-invoke IAM role | Lab host stack | Lets EventBridge Scheduler invoke the Lambda |
+| EventBridge Rule (5 min) | Lab host stack | Sweep trigger |
+| Callback secret | Lab host stack | Shared HMAC secret, read by the Fargate task |
+| Scheduler IAM on the task role | Web stack | `CreateSchedule` / `DeleteSchedule` |
+
+For how these stacks plug into a borrowed ALB/Cognito/VPC platform, see [../infra/PLATFORM_INTEGRATION.md](../infra/PLATFORM_INTEGRATION.md).
 
 ## Future improvements
 
-- **Source-aware idle detection:** Only count SSH from non-VPC (learner) addresses so web-only grading does not arm the idle watcher incorrectly.
-- **Activity extension:** Refresh `ExpiresAt` and reschedule max TTL on grader run or explicit heartbeat (trade cost for longer labs).
-- **Metrics:** CloudWatch counters for teardown reason (`ssh_idle`, `max_ttl`, `expires_at_sweep`, `manual`) to tune grace and TTL.
-- **Hardened AMI:** Packer image with Docker pre-installed, fail2ban, and watcher baked in instead of full user-data bootstrap.
+- **Source-aware idle detection.** Count only SSH from non-VPC (learner) addresses, so web-only grading stops arming the watcher and the first known limitation goes away.
+- **Activity extension.** Refresh `ExpiresAt` and reschedule the max-TTL entry on a grader run or an explicit heartbeat, trading some cost for longer working sessions.
+- **Teardown metrics.** CloudWatch counters per reason (`ssh_idle`, `max_ttl`, `expires_at_sweep`, `manual`) to tune the grace and the cap against real usage instead of guesses.
+- **Pre-baked AMI.** A Packer image with Docker, the watcher, and host hardening already installed, replacing the full user-data bootstrap and shaving provision time.
 
 ## Related files
 
-- [`web/lib/ec2-labs.ts`](../web/lib/ec2-labs.ts) — provision, tag, schedule
-- [`web/lib/session-scheduler.ts`](../web/lib/session-scheduler.ts) — EventBridge Scheduler client
-- [`web/app/api/sessions/[id]/shutdown/route.ts`](../web/app/api/sessions/[id]/shutdown/route.ts) — internal shutdown API
-- [`infra/lib/lab-host-stack.ts`](../infra/lib/lab-host-stack.ts) — terminator Lambda + scheduler role
-- [`infra/lib/opscoach-service-stack.ts`](../infra/lib/opscoach-service-stack.ts) — Fargate env + scheduler IAM
+- `web/lib/ec2-labs.ts`: provision, tag, kick off the schedule
+- `web/lib/session-scheduler.ts`: EventBridge Scheduler client
+- `web/lib/lab-user-data.ts`: host bootstrap and the idle watcher
+- `web/app/api/sessions/[id]/shutdown/route.ts`: internal shutdown API
+- `web/lib/sessions.ts`: `shutdownSessionInternal`, the unified path
+- `infra/lib/lab-host-stack.ts`: terminator Lambda, sweep Rule, scheduler role
+- `infra/lib/session-terminator/handler.py`: terminate and sweep logic
