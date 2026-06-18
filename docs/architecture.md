@@ -1,8 +1,18 @@
 # OpsCoach architecture
 
-OpsCoach runs its web app as a container on **ECS Fargate** behind a **shared ALB + Cognito** platform, and gives each learner a dedicated, ephemeral **EC2** lab host. The web service bridges the in-browser terminal to that host over SSH, runs a grader against real system state, and tears the host down automatically.
+This walks the system from 30,000 feet down to the decisions worth defending. Skim the top, and drop in wherever you care.
 
-## System topology
+## 30,000 ft · the shape
+
+OpsCoach gives each learner a real, throwaway Linux machine and grades what they actually do to it. Three parts make that work:
+
+- A **web app** (Next.js on ECS Fargate) that serves the UI, bridges the terminal, and runs grading.
+- A **per-session lab host** (a dedicated EC2 instance) that the learner operates and that is destroyed on a timer.
+- A **shared platform** (ALB, Cognito, VPC) that the app plugs into instead of rebuilding.
+
+Everything below is how those three talk to each other safely.
+
+## 10,000 ft · the system
 
 ![OpsCoach AWS architecture](architecture.svg)
 
@@ -19,9 +29,25 @@ Grey dashed lines are supporting paths: Fargate to RDS PostgreSQL in the isolate
 
 Colour key: purple is networking (ALB, Cloud Map); orange is compute and containers (Fargate, EC2, Lambda, ECR); red is identity and secrets (Cognito, Secrets Manager); blue is the database (RDS); pink is app integration (EventBridge Scheduler).
 
-## Key flows
+### Components
 
-### 1 · Authentication and access gate
+| Component | AWS service | Role |
+| --- | --- | --- |
+| Web app + terminal bridge | ECS Fargate | Next.js app + custom Node server; WebSocket→SSH PTY bridge; session lifecycle, grading, dashboard |
+| Edge auth | ALB + Cognito | `authenticate-cognito` at the load balancer (hosted UI → Google), then a post-auth passphrase gate |
+| Lab host | EC2 (per session) | Ephemeral AL2023 / arm64 host running the lab container; learner SSH target |
+| Container images | ECR | Images for the web service and each lab |
+| Database | RDS PostgreSQL | Sessions, check runs, grader results (isolated subnet) |
+| Service discovery | Cloud Map | In-VPC address for lab-host to web callbacks |
+| Teardown | EventBridge Scheduler + Lambda | One-shot per-session schedule fires a terminator Lambda; 5-minute sweep backstop |
+| Secrets | Secrets Manager | Database credentials and the callback HMAC secret |
+
+<details>
+<summary><b>The flows, step by step</b> (auth, provision, terminal, grading, teardown)</summary>
+
+&nbsp;
+
+**1 · Authentication and access gate**
 
 ```mermaid
 sequenceDiagram
@@ -43,7 +69,7 @@ sequenceDiagram
     Note over ALB,App: /api/health and /logout skip Cognito
 ```
 
-### 2 · Provision a lab session
+**2 · Provision a lab session**
 
 ```mermaid
 sequenceDiagram
@@ -63,7 +89,7 @@ sequenceDiagram
     App-->>U: session ready (host, port)
 ```
 
-### 3 · Browser terminal and SSH
+**3 · Browser terminal and SSH**
 
 ```mermaid
 sequenceDiagram
@@ -80,7 +106,7 @@ sequenceDiagram
     Note over U,EC2: opt-in: SSH directly to the host's public IP
 ```
 
-### 4 · Live grading
+**4 · Live grading**
 
 ```mermaid
 sequenceDiagram
@@ -98,7 +124,7 @@ sequenceDiagram
     App-->>U: live results on the dashboard
 ```
 
-### 5 · Idle and lifetime teardown
+**5 · Idle and lifetime teardown**
 
 ```mermaid
 sequenceDiagram
@@ -114,25 +140,29 @@ sequenceDiagram
     Note over EC2,App: backstop: 5-min EventBridge sweep<br/>terminates any host past its ExpiresAt tag
 ```
 
-## Components
+</details>
 
-| Component | AWS service | Role |
-| --- | --- | --- |
-| Web app + terminal bridge | ECS Fargate | Next.js app + custom Node server; WebSocket→SSH PTY bridge; session lifecycle, grading, dashboard |
-| Edge auth | ALB + Cognito | `authenticate-cognito` at the load balancer (hosted UI → Google), then a post-auth passphrase gate |
-| Lab host | EC2 (per session) | Ephemeral AL2023 / arm64 host running the lab container; learner SSH target |
-| Container images | ECR | Images for the web service and each lab |
-| Database | RDS PostgreSQL | Sessions, check runs, grader results (isolated subnet) |
-| Service discovery | Cloud Map | In-VPC address for lab-host to web callbacks |
-| Teardown | EventBridge Scheduler + Lambda | One-shot per-session schedule fires a terminator Lambda; 5-minute sweep backstop |
-| Secrets | Secrets Manager | Database credentials and the callback HMAC secret |
+## 1,000 ft · the decisions that shaped it
 
-## Security
+Each of these was a fork where the obvious choice was the wrong one. Constraint, decision, trade-off.
 
-In one line: each session is a single-tenant, credential-poor EC2 host that self-destructs on a timer, so an escaped lab container controls one throwaway box and nothing else. The full model and its trade-offs are in **[security.md](security.md)**.
+**A real host per session, not a shared sandbox.**
+Constraint: teaching operations means real systemd, real root, real packages, but you cannot hand untrusted users root on shared infrastructure. Decision: every session gets its own ephemeral EC2 host, and the security model treats that host (not the container on it) as the real boundary, killed on a timer. Trade-off: a minute or two of provisioning latency and per-session cost, bought back as realism plus a blast radius of exactly one throwaway box. Full model in [security.md](security.md).
+
+**A custom Node server for the browser terminal.**
+Constraint: a browser terminal needs a long-lived, two-way connection to a shell, and Next.js on its own does not hold one. Decision: wrap Next in a thin `server.js` that upgrades the WebSocket, authenticates the session through an internal call, and bridges to the host with an `ssh2` PTY. Trade-off: a custom server instead of stock Next, plus a 25-second keepalive so the ALB does not cut an idle terminal, in exchange for a real shell in the browser with nothing to install.
+
+**Grade real state, not answers.**
+Constraint: multiple-choice cannot tell you whether someone can actually run a box. Decision: the grader SSHes into the live host with a least-privilege environment and checks real state (services up, files in place, config correct), returning structured results. Trade-off: graders are per-pack code that has to run against a live machine, in exchange for a pass that means the box is genuinely in the right state.
+
+**Three independent teardown paths.**
+Constraint: a leaked instance costs real money, and the control plane never sees the learner's SSH activity. Decision: an on-host SSH-idle watcher, a one-shot EventBridge Scheduler set at provision time, and a 5-minute sweep over expiry tags. Any one is enough, and all are idempotent. Trade-off: more moving parts, for a hard guarantee that nothing runs forever. Full design in [lab-lifecycle-design.md](lab-lifecycle-design.md).
+
+**Borrow the platform; import by ID.**
+Constraint: a demo should not stand up its own ALB, Cognito, and VPC. Decision: the CDK imports a shared platform's resources by ID from local context, and the real IDs stay out of the repo. Trade-off: the app cannot bootstrap its own world from nothing, in exchange for dropping cleanly into a real shared environment.
 
 ## See also
 
-- **[security.md](security.md)** for the security model.
-- **[lab-lifecycle-design.md](lab-lifecycle-design.md)** for how provisioning and the three-layer teardown actually work.
+- **[security.md](security.md)** for the security model and its trade-offs.
+- **[lab-lifecycle-design.md](lab-lifecycle-design.md)** for provisioning and the three-layer teardown in depth.
 - **[../infra/PLATFORM_INTEGRATION.md](../infra/PLATFORM_INTEGRATION.md)** for plugging into a shared ALB/Cognito platform.

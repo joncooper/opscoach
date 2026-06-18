@@ -6,11 +6,12 @@ This is a portfolio project. The parts worth a look: a live browser-to-SSH termi
 
 ## Start here
 
-Three altitudes, depending on how much you want:
+This page is the two-minute pitch. For the system itself, **[docs/architecture.md](docs/architecture.md)** is the walkthrough: it starts at 30,000 feet (the three moving parts), drops to 10,000 feet (the diagram, components, and flows), and lands at 1,000 feet (the design decisions worth defending).
 
-- **30,000 ft** (this page). What it is and why it is built this way. About two minutes.
-- **10,000 ft.** [Architecture](docs/architecture.md) for the AWS diagram and the five main flows, and the [security model](docs/security.md) for how untrusted users get root safely.
-- **1,000 ft.** The [lab lifecycle design](docs/lab-lifecycle-design.md) and the code itself.
+From there:
+
+- **[Security model](docs/security.md)**: how untrusted users get root without putting anything else at risk.
+- **[Lab lifecycle](docs/lab-lifecycle-design.md)** and **[local dev](docs/local-dev-without-aws.md)**: ground-level detail, next to the code.
 
 ## What it does
 
