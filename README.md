@@ -1,127 +1,61 @@
 # OpsCoach
 
-OpsCoach is a hands-on Linux and cloud operations training platform. Each learner gets a
-real, ephemeral cloud Linux host and works through graded, scenario-based labs — for
-example *"Beaconkeeper: Twenty Lanterns to Dawn"* — from an in-browser terminal or over
-SSH, with live grading and a live service dashboard.
+A hands-on platform for learning Linux and AWS operations. Instead of quizzes, you get a real, throwaway cloud server and a task list, and a grader checks the actual state of the machine as you work.
 
-Instead of multiple-choice quizzes, learners are dropped onto an actual machine and asked
-to *do the work*: orient themselves in a shell, find and fix misconfigurations, harden SSH,
-triage logs, inspect cloud resources, and so on. A host-side grader inspects real system
-state and returns structured pass/fail results, so progress reflects what the learner
-actually accomplished on the box.
+This is a portfolio project. The parts worth a look: a live browser-to-SSH terminal, per-session disposable lab hosts on AWS, and grading that reads real system state instead of comparing answers.
 
-## Highlights
+## Start here
 
-- **Real ephemeral hosts.** Every session provisions a dedicated, short-lived cloud Linux
-  host and tears it down automatically on idle or after a hard lifetime cap.
-- **Browser terminal or SSH.** Work entirely in the browser (xterm.js over a WebSocket
-  bridge) or connect with your own SSH key — your choice.
-- **Live grading.** A grader runs against real system state and streams check results as
-  you go, with a live service/scoreboard dashboard alongside the terminal.
-- **Scenario content packs.** Self-contained packs bundle the lab runtime image, the
-  grader, and the learner-facing brief. Ships with Linux Foundations drills, AWS
-  Foundations labs, and the Beaconkeeper capstone.
+Three altitudes, depending on how much you want:
 
-## Architecture
+- **30,000 ft** (this page). What it is and why it is built this way. About two minutes.
+- **10,000 ft.** [Architecture](docs/architecture.md) for the AWS diagram and the five main flows, and the [security model](docs/security.md) for how untrusted users get root safely.
+- **1,000 ft.** The [lab lifecycle design](docs/lab-lifecycle-design.md) and the code itself.
 
-[![OpsCoach AWS architecture](docs/architecture.svg)](docs/architecture.md)
+## What it does
 
-> **[Full architecture & flows →](docs/architecture.md)** — request/auth, provisioning, terminal, grading, and teardown as sequence diagrams.
+A learner opens a lab and gets a dedicated Linux host in a minute or two. They work in a terminal, in the browser or over their own SSH, to fix broken services, harden config, triage logs, wire up systemd, and so on. A grader runs against the live machine and streams pass/fail checks to a dashboard beside the terminal. When the learner finishes or goes idle, the host is destroyed.
 
-- **Web app (`web/`)** — a Next.js app with a thin custom Node server (`web/server.js`)
-  that adds a WebSocket-to-SSH bridge: the browser terminal connects over `wss`, the server
-  authenticates the session and opens an `ssh2` PTY to the learner's lab host. App routes
-  handle session lifecycle, provisioning status, grading, notes, and the live dashboard.
-  In production the service runs on **AWS Fargate** behind a **shared ALB + Cognito**
-  platform you configure (it imports the VPC/ALB/cluster/Cognito by ID — it does not create
-  them). Postgres is used when configured; otherwise an in-memory store is used for local
-  development.
-- **Lab hosts** — per-session **EC2** instances launched from a hardened AMI, registered for
-  automatic teardown. Internal callbacks (ready webhook, terminator) reach the web service
-  over a private Cloud Map address, authenticated by a shared secret.
-- **Infrastructure (`infra/`)** — an **AWS CDK** (TypeScript) app defining the Fargate
-  service, lab-host stack, teardown automation (Lambdas + EventBridge Scheduler), and an
-  optional org-guardrail / scenario stack. Platform resource IDs are supplied via CDK
-  context (see Configure).
-- **Content packs (`ContentPacks/`)** — each pack contains a `manifest.json`, a `runtime/`
-  Docker image for the lab host, a `grader/` (Python) that checks real state, and lab
-  briefs/templates.
+Three content packs ship today: **Linux Foundations** and **AWS Foundations** drills, and the **Beaconkeeper** capstone, a 20-step systemd and operations scenario on a single box.
+
+## How it works
+
+A request reaches a shared ALB, authenticates through Cognito, and lands on the OpsCoach web app on ECS Fargate. Starting a lab launches a dedicated EC2 host; the web app bridges the browser terminal to it over SSH and runs the grader over SSH. Every host self-destructs on an idle or lifetime timer. The [architecture doc](docs/architecture.md) has the diagram and the full provision, terminal, grade, and teardown flows.
+
+## Why it is built this way
+
+The decisions that shaped it:
+
+- **Real hosts, not a fake shell.** Learning operations means touching real systemd, real packages, real logs. Each session is an actual EC2 instance, not an emulation.
+- **Disposable and single-tenant.** Labs run as a privileged user, so every session gets its own host that is wiped on a timer. The security model leans on the cheap, isolated host instead of on container isolation. See [security.md](docs/security.md).
+- **Grade real state, not answers.** The grader SSHes in and inspects the machine, so a check passes only when the box is actually in the right state.
+- **Borrow the platform, do not rebuild it.** The infrastructure plugs into an existing shared ALB, Cognito, and VPC by ID instead of standing up its own. The real resource IDs live in local config kept out of the repo.
 
 ## Repository layout
 
-| Path            | What it is                                                          |
-| --------------- | ------------------------------------------------------------------ |
-| `web/`          | Next.js app + custom WebSocket/SSH server, API routes, UI          |
-| `infra/`        | AWS CDK app (Fargate service, lab hosts, teardown, guardrails)     |
-| `ContentPacks/` | Lab + game content (runtime images, graders, briefs)               |
-| `scripts/`      | Build, deploy, and smoke-test shell scripts                        |
-| `docs/`         | Architecture and design notes                                      |
+| Path | What it is |
+| --- | --- |
+| `web/` | Next.js app and custom Node server (WebSocket-to-SSH bridge), API routes, UI |
+| `infra/` | AWS CDK app: Fargate service, lab hosts, teardown automation |
+| `ContentPacks/` | Labs and graders, including the Beaconkeeper game |
+| `scripts/` | Build, deploy, and smoke-test scripts |
+| `docs/` | Architecture, security, and design notes |
 
-## Quick start (local)
+## Run it locally
 
 ```bash
 cd web
 npm install
-cp .env.example .env      # fill in values as needed (most are optional locally)
-npm run dev               # Next.js dev server
+cp .env.example .env      # most values are optional locally
+npm run dev
 ```
 
-With no AWS credentials and no `DATABASE_URL`, the app runs in a local mock mode (in-memory
-store, mocked provisioning) so you can explore the UI and content without any cloud
-resources. The production custom server is started with `npm run build && npm start`.
+With no AWS credentials and no `DATABASE_URL`, the app runs in mock mode: an in-memory store and faked provisioning, so you can click through the UI and content offline. Run the tests with `npm test`. More in [docs/local-dev-without-aws.md](docs/local-dev-without-aws.md).
 
-Run the web test suite:
+## Configure and deploy
 
-```bash
-cd web && npm test
-```
-
-## Configure
-
-Two pieces of configuration are kept out of version control and supplied locally:
-
-1. **App environment** — copy `web/.env.example` to `web/.env` and fill in values. This file
-   documents every variable the app reads, including the access-gate settings (`GATE_TOKEN`,
-   `GATE_ANSWERS`, `NEXT_PUBLIC_GATE_PROMPT`), datastore, AWS/region, EC2 lab provisioning,
-   session lifecycle limits, and the internal callback secret.
-
-2. **CDK platform context** — copy `infra/cdk.context.example.json` to
-   `infra/cdk.context.json` (gitignored) and fill in your platform's IDs: account/region,
-   VPC, ECS cluster name, ALB ARN + security group, HTTPS listener ARN, Cloud Map namespace,
-   DNS zone, ECR repository, and (optionally) Cognito user-pool ID + hosted-UI domain. If
-   you already have a shared platform deployed, `scripts/discover-platform-context.sh` can
-   discover and write this file for you from CloudFormation outputs.
-
-```bash
-cp infra/cdk.context.example.json infra/cdk.context.json
-# edit infra/cdk.context.json, or:
-./scripts/discover-platform-context.sh
-```
-
-### Access gate
-
-The app sits behind a small post-authentication access gate: after the upstream identity
-provider authenticates a visitor, they must enter a shared passphrase before reaching any
-page. The prompt, accepted answers, and cookie token are all read from environment
-variables (`NEXT_PUBLIC_GATE_PROMPT`, `GATE_ANSWERS`, `GATE_TOKEN`) — nothing secret lives
-in the source. See `web/lib/gate.ts`.
-
-## Deploy
-
-Deployment targets a shared ALB/Cognito platform you operate. At a high level:
-
-```bash
-# 1) discover/define platform context
-./scripts/discover-platform-context.sh        # or hand-edit infra/cdk.context.json
-
-# 2) build + push the web and lab images, then deploy the CDK stacks
-./scripts/deploy-platform.sh
-```
-
-See `infra/PLATFORM_INTEGRATION.md` for the full integration walkthrough and
-`infra/README.md` for CDK stack details.
+Two things stay out of version control: the app's `web/.env` (copied from `web/.env.example`) and the CDK platform context (`infra/cdk.context.json`, copied from the example or generated by `scripts/discover-platform-context.sh`). With those in place, `scripts/deploy-platform.sh` builds the images and deploys the stacks. The walkthrough is in [`infra/PLATFORM_INTEGRATION.md`](infra/PLATFORM_INTEGRATION.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
