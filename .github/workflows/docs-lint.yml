@@ -25,17 +25,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: markdownlint (structure)
-        uses: DavidAnson/markdownlint-cli2-action@v16
-        with:
-          globs: |
-            README.md
-            docs/**/*.md
+        run: npx --yes markdownlint-cli2 "**/*.md"
+
+      - name: Install Vale
+        run: |
+          ver=$(curl -fsSL https://api.github.com/repos/errata-ai/vale/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+')
+          curl -fsSL "https://github.com/errata-ai/vale/releases/download/v${ver}/vale_${ver}_Linux_64-bit.tar.gz" | sudo tar -xz -C /usr/local/bin vale
+          vale --version
 
       - name: Vale (house prose rules)
-        uses: errata-ai/vale-action@reviewdog
-        with:
-          files: README.md docs
-          fail_on_error: true
-          reporter: github-check
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: vale .

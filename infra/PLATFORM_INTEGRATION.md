@@ -2,7 +2,7 @@
 
 Deploy Ops Coach into the shared platform without recreating VPC, ALB, or ECS cluster.
 
-**Local dev (no AWS):** see [`docs/local-dev-without-aws.md`](../docs/local-dev-without-aws.md) — deferred; production path below.
+**Local dev (no AWS):** see [`docs/local-dev-without-aws.md`](../docs/local-dev-without-aws.md) (deferred); production path below.
 
 ## Quick deploy
 
@@ -20,7 +20,7 @@ This script:
 3. Builds and pushes the web image (`linux/arm64`)
 4. Runs `cdk deploy` for `Dev-OpsCoachLabHost` and `Dev-OpsCoach`
 
-After deploy, open **https://opscoach.ops.example.com** and smoke:
+After deploy, open `https://opscoach.ops.example.com` and smoke:
 
 ```bash
 curl -fsS https://opscoach.ops.example.com/api/labs | jq '.packs // .labs | length'

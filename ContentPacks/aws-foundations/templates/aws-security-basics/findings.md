@@ -19,7 +19,7 @@ Record the IDs/names from `resource-map.env` (or README.md):
 
 ## Target State Checklist
 
-After remediation, fill each row with the **observed final state** using one of: enabled, disabled, removed, true, false, or required. Do not copy placeholder text — record what you verified with describe/get calls.
+After remediation, fill each row with the **observed final state** using one of: enabled, disabled, removed, true, false, or required. Do not copy placeholder text. Record what you verified with describe/get calls.
 
 Format examples (replace with your verified values):
 
