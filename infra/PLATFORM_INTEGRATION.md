@@ -2,7 +2,7 @@
 
 Deploy Ops Coach into the shared platform without recreating VPC, ALB, or ECS cluster.
 
-**Local dev (no AWS):** see [`docs/local-dev-without-aws.md`](../docs/local-dev-without-aws.md) — deferred; production path below.
+**Local dev (no AWS):** see [`docs/local-dev-without-aws.md`](../docs/local-dev-without-aws.md) (deferred); production path below.
 
 ## Quick deploy
 
