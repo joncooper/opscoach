@@ -14,7 +14,7 @@ Here is the Beaconkeeper capstone. In the browser terminal, `ops status` lists t
 
 ![OpsCoach session: the Beaconkeeper capstone, with ops status in the browser terminal and the live public dashboard](docs/img/workspace.png)
 
-The catalog groups the Linux and cloud-ops drills with the Beaconkeeper capstone:
+The full catalog, from the Linux and cloud-ops drills to the Beaconkeeper capstone:
 
 ![OpsCoach catalog of labs](docs/img/catalog.png)
 
