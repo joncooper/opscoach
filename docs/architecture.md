@@ -1,10 +1,12 @@
 # OpsCoach architecture
 
-This walks the system from 30,000 feet down to the decisions worth defending. Skim the top, and drop in wherever you care.
+OpsCoach gives each learner a real, throwaway Linux host and grades what they actually do to it. This doc starts at 30,000 feet and drops to the decisions worth defending; skim the top, and stop where you care.
+
+**Scope:** single-region training infrastructure for one app that borrows a shared ALB/Cognito platform. Not a hostile multi-tenant sandbox, and not a high-availability production service.
 
 ## 30,000 ft · the shape
 
-OpsCoach gives each learner a real, throwaway Linux machine and grades what they actually do to it. Three parts make that work:
+The whole system is three parts:
 
 - A **web app** (Next.js on ECS Fargate) that serves the UI, bridges the terminal, and runs grading.
 - A **per-session lab host** (a dedicated EC2 instance) that the learner operates and that is destroyed on a timer.
