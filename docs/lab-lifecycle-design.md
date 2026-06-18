@@ -38,7 +38,7 @@ Because it runs on the host, and the host can misreport or go silent. The watche
 
 ### Why not a timer alone?
 
-A timer with no idle signal is either too aggressive or too loose. Tune it short and it kills learners mid-lab; tune it long and idle hosts bill for the slack. The earlier design made exactly this mistake: it set `ExpiresAt = now + 10 min` at provision and called it idle teardown, which just terminated active sessions ten minutes in. A fixed cap is the right tool for *bounding* cost, not for detecting idle. It belongs as the backstop, with a real idle signal in front of it.
+A timer with no idle signal is either too aggressive or too loose. Tune it short and it kills learners mid-lab; tune it long and idle hosts bill for the slack. The earlier design made exactly this mistake: it set `ExpiresAt = now + 10 min` at provision and called it idle teardown, which just terminated active sessions ten minutes in. A fixed cap is the right tool for *bounding* cost, not for detecting idle. It belongs as the backstop, with an actual idle signal in front of it.
 
 ### Why both a schedule and a sweep?
 
@@ -49,7 +49,7 @@ They cover different failures. The schedule is precise but can fail to exist: if
 Generated as shell user-data in `web/lib/lab-user-data.ts` (mirrored in `infra/lib/lab-user-data.sh` for launch-template defaults). A background loop runs on the host:
 
 1. Every 15 seconds, count established connections on local port 22 with `ss -tn state established '( sport = :22 )'`.
-2. Once that count goes above zero, latch a `had_session` flag. The watcher will not act until it has seen at least one real session.
+2. Once that count goes above zero, latch a `had_session` flag. The watcher will not act until it has seen at least one session.
 3. When `had_session` is set and the count falls back to zero, start an idle clock.
 4. After `SSH_IDLE_GRACE_SECONDS` (default **120**) of continuous idle, POST the shutdown webhook:
 
@@ -61,7 +61,7 @@ Content-Type: application/json
 { "reason": "ssh_idle" }
 ```
 
-The 120-second grace debounces two things: a brief network blip or `ssh` reconnect that should not end the session, and the grader's SSH from Fargate (the platform grades a lab by logging in to check real state) that should be allowed to finish without racing a learner disconnect.
+The 120-second grace debounces two things: a brief network blip or `ssh` reconnect that should not end the session, and the grader's SSH from Fargate (the platform grades a lab by logging in to check its state) that should be allowed to finish without racing a learner disconnect.
 
 The watcher only *asks* for teardown. It cannot terminate anything: the lab instance role grants log writes and ECR image pulls and nothing else (no `ec2:TerminateInstances`), so a compromised host cannot turn the watcher into a weapon against other instances. Termination always runs off-host, gated by the callback secret.
 
@@ -91,7 +91,7 @@ The sweep depends on nothing but a tag the launch already wrote, which is the wh
 
 ## Unified shutdown
 
-Every path, automated or manual, converges on `shutdownSessionInternal` in `web/lib/sessions.ts`. Keeping one routine is what makes the idempotency real: concurrent triggers collapse onto the same guarded transition instead of racing.
+Every path, automated or manual, converges on `shutdownSessionInternal` in `web/lib/sessions.ts`. Keeping one routine is what makes the idempotency hold: concurrent triggers collapse onto the same guarded transition instead of racing.
 
 1. Return immediately if the session is already `stopped` or `stopping`.
 2. Set status `stopping`.
@@ -132,7 +132,7 @@ The two knobs that change behavior are the max lifetime and the idle grace. Both
 
 One CDK field is a deliberate trap to avoid: `idleTimeoutMinutes` (default `10`) is a legacy name from the old timer-as-idle design and **no longer drives `ExpiresAt`**. The horizon comes from `maxLifetimeMinutes`. The name is kept only to avoid a churning rename; do not wire teardown to it.
 
-Without `EC2_LAUNCH_TEMPLATE_ID`, provisioning is mock-only: no real host, no scheduler, no watcher, and sessions live in memory unless `DATABASE_URL` is set. That is the local-development path, covered in [local-dev-without-aws.md](local-dev-without-aws.md).
+Without `EC2_LAUNCH_TEMPLATE_ID`, provisioning is mock-only: no host, no scheduler, no watcher, and sessions live in memory unless `DATABASE_URL` is set. That is the local-development path, covered in [local-dev-without-aws.md](local-dev-without-aws.md).
 
 ## CDK components
 
@@ -150,7 +150,7 @@ For how these stacks plug into a borrowed ALB/Cognito/VPC platform, see [../infr
 
 - **Source-aware idle detection.** Count only SSH from non-VPC (learner) addresses, so web-only grading stops arming the watcher and the first known limitation goes away.
 - **Activity extension.** Refresh `ExpiresAt` and reschedule the max-TTL entry on a grader run or an explicit heartbeat, trading some cost for longer working sessions.
-- **Teardown metrics.** CloudWatch counters per reason (`ssh_idle`, `max_ttl`, `expires_at_sweep`, `manual`) to tune the grace and the cap against real usage instead of guesses.
+- **Teardown metrics.** CloudWatch counters per reason (`ssh_idle`, `max_ttl`, `expires_at_sweep`, `manual`) to tune the grace and the cap against observed usage instead of guesses.
 - **Pre-baked AMI.** A Packer image with Docker, the watcher, and host hardening already installed, replacing the full user-data bootstrap and shaving provision time.
 
 ## Related files

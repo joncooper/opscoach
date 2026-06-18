@@ -1,12 +1,12 @@
 # Security model
 
-OpsCoach hands authenticated users a real Linux machine and lets them run real commands as a privileged user. That is the product, and it is also the security problem. The whole design is about making that machine cheap to lose.
+OpsCoach hands authenticated users a Linux machine and lets them run commands as a privileged user. That is the product, and it is also the security problem. The whole design is about making that machine cheap to lose.
 
 ## The core bet
 
 Assume the lab container can be escaped, and build so that escaping it does not matter.
 
-A learner doing a systemd or filesystem lab needs genuine control of the box, so the lab container runs `--privileged`. Treating that container as a strong wall would be a losing game. Instead OpsCoach treats the EC2 host as the real boundary and makes the host cheap to lose:
+A learner doing a systemd or filesystem lab needs genuine control of the box, so the lab container runs `--privileged`. Treating that container as a strong wall would be a losing game. Instead OpsCoach treats the EC2 host as the boundary and makes the host cheap to lose:
 
 - One host per session: no shared tenancy, so a learner can reach only their own machine.
 - Nothing valuable lives on it: the host's IAM role can pull the lab image and write logs, and that is the whole list. Database credentials, the callback secret, and grader keys never touch the host.
@@ -34,11 +34,11 @@ The network path is one-way by design. The host's security group accepts learner
 
 ## The valuable secrets live somewhere else
 
-The pieces that hold real credentials stay off the host entirely, so compromising a host never yields them.
+The pieces that hold credentials stay off the host entirely, so compromising a host never yields them.
 
 Database credentials and the callback HMAC secret live in Secrets Manager, read at runtime by the web task and the terminator Lambda. They are never written to a host or baked into an image.
 
-Grading runs least-privilege. The grader is a committed content-pack program that the web task runs as a child process with an allowlisted environment: `PATH`, `HOME`, `LANG`, `AWS_REGION`, `AWS_CONFIG_FILE`, and a few locale variables. The AWS credential variables and the ECS role-fetch URI are excluded, so a buggy or hostile grader cannot read the database, the callback secret, or assume the task's role. Labs that exercise real cloud APIs do not borrow the task role either; they authenticate with their own scoped, per-session workspace credentials.
+Grading runs least-privilege. The grader is a committed content-pack program that the web task runs as a child process with an allowlisted environment: `PATH`, `HOME`, `LANG`, `AWS_REGION`, `AWS_CONFIG_FILE`, and a few locale variables. The AWS credential variables and the ECS role-fetch URI are excluded, so a buggy or hostile grader cannot read the database, the callback secret, or assume the task's role. Labs that exercise cloud APIs do not borrow the task role either; they authenticate with their own scoped, per-session workspace credentials.
 
 Each session also mints two fresh SSH keypairs: the learner's (public key on the box, private key theirs) and the grader's (server-only). A leaked learner key therefore reaches one box the learner already controls, and nothing else, and both keys are discarded when the session ends.
 

@@ -1,6 +1,6 @@
 # OpsCoach architecture
 
-OpsCoach hands each learner a real, throwaway Linux host and grades what they actually do to it. This doc descends from 30,000 feet to the design decisions behind it.
+OpsCoach hands each learner a disposable Linux host and grades what they actually do to it. This doc descends from 30,000 feet to the design decisions behind it.
 
 **Scope.** Single-region training infrastructure for one app that borrows a shared ALB, Cognito, and VPC platform instead of standing up its own. Explicitly not a hostile multi-tenant sandbox, and not a high-availability production service.
 
@@ -12,7 +12,7 @@ Three parts, and everything else is how they talk to each other safely:
 - A **per-session lab host** (a dedicated EC2 instance) that the learner operates and that is destroyed on a timer.
 - A **shared platform** (ALB, Cognito, VPC) that the app plugs into by ID rather than rebuilding.
 
-The engineering lives in the seams: handing an untrusted user root on a real machine without putting anything else at risk, holding a live shell open through a load balancer, and guaranteeing that no host outlives its session.
+The engineering lives in the seams: handing an untrusted user root on a live machine without putting anything else at risk, holding a live shell open through a load balancer, and guaranteeing that no host outlives its session.
 
 ## 10,000 ft · the system
 
@@ -149,20 +149,20 @@ sequenceDiagram
 
 Each of these is a place the obvious choice would have been wrong. Constraint, decision, trade-off.
 
-**A real host per session, not a shared sandbox.**
-Constraint: teaching operations means real systemd, real root, real packages, and you cannot hand untrusted users root on shared infrastructure. Both cheaper alternatives (a shared multi-tenant host, or browser-only containers) make container isolation the only wall between a hostile learner and everyone else, so a single escape compromises every session. Decision: every session gets its own ephemeral EC2 host, killed on a timer. The security model treats that host, not the container on it, as the real boundary. Trade-off: a minute or two of provisioning latency and per-session cost, in exchange for a blast radius of exactly one throwaway box, and a learner operating a real machine rather than a simulation. Full model in [security.md](security.md).
+**One host per session.**
+Constraint: teaching operations means actual systemd, root, and packages, and you cannot hand untrusted users root on shared infrastructure. Both cheaper alternatives (a shared multi-tenant host, or browser-only containers) make container isolation the only wall between a hostile learner and everyone else, so a single escape compromises every session. Decision: every session gets its own ephemeral EC2 host, killed on a timer. The security model treats that host, not the container on it, as the boundary. Trade-off: a minute or two of provisioning latency and per-session cost, in exchange for a blast radius of exactly one throwaway box, and a learner working on a live Linux box, not a simulation. Full model in [security.md](security.md).
 
 **A custom Node server for the browser terminal.**
-Constraint: a browser terminal needs a long-lived, two-way connection to a shell, and Next.js on its own does not hold one. Decision: wrap Next in a thin `server.js`. It leaves every normal request to the stock Next handler and intercepts only the WebSocket upgrade, where it authenticates the session through an internal call and bridges to the host with an `ssh2` PTY. Trade-off: a custom server instead of stock Next, plus a 25-second keepalive ping so the ALB does not reap an idle terminal, in exchange for a real shell in the browser with nothing for the learner to install.
+Constraint: a browser terminal needs a long-lived, two-way connection to a shell, and Next.js on its own does not hold one. Decision: wrap Next in a thin `server.js`. It leaves every normal request to the stock Next handler and intercepts only the WebSocket upgrade, where it authenticates the session through an internal call and bridges to the host with an `ssh2` PTY. Trade-off: a custom server instead of stock Next, plus a 25-second keepalive ping so the ALB does not reap an idle terminal, in exchange for a shell on a live Linux box with nothing for the learner to install.
 
-**Grade real state, not answers.**
-Constraint: a fixed answer key tells you the learner typed the expected command, not that the box ended up in the right state. Decision: the grader SSHes into the live host with a least-privilege environment and checks real state (services up, files in place, config correct), returning structured results that stream to the dashboard as each check completes. Trade-off: graders are per-pack code that has to run against a live machine, in exchange for a pass that means the box is genuinely in the right state, not that the learner ran the expected commands.
+**Grade state, not answers.**
+Constraint: a fixed answer key tells you the learner typed the expected command, not that the box ended up in the right state. Decision: the grader SSHes into the live host with a least-privilege environment and checks the machine itself (services up, files in place, config correct), returning structured results that stream to the dashboard as each check completes. Trade-off: graders are per-pack code that has to run against a live machine, in exchange for a pass that means the box is genuinely in the right state, not that the learner ran the expected commands.
 
 **Three independent teardown paths.**
-Constraint: a leaked instance costs real money, and the control plane never sees the learner's SSH activity, so it cannot infer idle from browser traffic. Decision: an on-host SSH-idle watcher, a one-shot EventBridge Scheduler set at provision time, and a 5-minute sweep over expiry tags. Any one path is sufficient, and all are idempotent. Trade-off: more moving parts, for a hard guarantee that nothing runs forever. Full design in [lab-lifecycle-design.md](lab-lifecycle-design.md).
+Constraint: a leaked instance costs money, and the control plane never sees the learner's SSH activity, so it cannot infer idle from browser traffic. Decision: an on-host SSH-idle watcher, a one-shot EventBridge Scheduler set at provision time, and a 5-minute sweep over expiry tags. Any one path is sufficient, and all are idempotent. Trade-off: more moving parts, for a hard guarantee that nothing runs forever. Full design in [lab-lifecycle-design.md](lab-lifecycle-design.md).
 
 **Borrow the platform; import by ID.**
-Constraint: a demo should not stand up its own ALB, Cognito, and VPC. Decision: the CDK imports a shared platform's resources by ID from local context, and the real IDs stay out of the repo (placeholders ship in their place). Trade-off: the app cannot bootstrap its own world from nothing, in exchange for dropping cleanly into an existing shared environment.
+Constraint: a demo should not stand up its own ALB, Cognito, and VPC. Decision: the CDK imports a shared platform's resources by ID from local context, and the actual IDs stay out of the repo (placeholders ship in their place). Trade-off: the app cannot bootstrap its own world from nothing, in exchange for dropping cleanly into an existing shared environment.
 
 ## See also
 
